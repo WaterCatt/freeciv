@@ -2048,12 +2048,14 @@ bool can_player_build_unit_direct(const struct player *p,
       } else if (is_small_wonder(preq->source.value.building)) {
         if (!city_from_wonder(p, preq->source.value.building)
             && consider_reg_impr_req
-            && !can_player_build_improvement_direct(p, preq->source.value.building)) {
+            && !can_player_build_improvement_direct(p, preq->source.value.building,
+                                                    RPT_CERTAIN)) {
           return FALSE;
         }
       } else {
         if (consider_reg_impr_req
-            && !can_player_build_improvement_direct(p, preq->source.value.building)) {
+            && !can_player_build_improvement_direct(p, preq->source.value.building,
+                                                    RPT_CERTAIN)) {
           return FALSE;
         }
       }

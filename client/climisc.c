@@ -794,7 +794,8 @@ int collect_buildable_targets(struct universal *targets)
   }
 
   improvement_iterate(pimprove) {
-    if (can_player_build_improvement_now(client.conn.playing, pimprove)) {
+    if (can_player_build_improvement_now(client.conn.playing, pimprove,
+                                         RPT_CERTAIN)) {
       targets[cids_used].kind = VUT_IMPROVEMENT;
       targets[cids_used].value.building = pimprove;
       cids_used++;
@@ -830,19 +831,22 @@ int collect_eventually_buildable_targets(struct universal *targets,
 
     if (NULL != pcity) {
       /* Can the city build? */
-      can_build = can_city_build_improvement_now(pcity, pimprove);
+      can_build = can_city_build_improvement_now(pcity, pimprove,
+                                                 RPT_CERTAIN);
       can_eventually_build = can_city_build_improvement_later(pcity,
                                                               pimprove);
     } else if (NULL != pplayer) {
       /* Can our player build? */
-      can_build = can_player_build_improvement_now(pplayer, pimprove);
+      can_build = can_player_build_improvement_now(pplayer, pimprove,
+                                                   RPT_CERTAIN);
       can_eventually_build = can_player_build_improvement_later(pplayer,
                                                                 pimprove);
     } else {
       /* Global observer case: can any player build? */
       can_build = FALSE;
       players_iterate(aplayer) {
-        if (can_player_build_improvement_now(aplayer, pimprove)) {
+        if (can_player_build_improvement_now(aplayer, pimprove,
+                                             RPT_CERTAIN)) {
           can_build = TRUE;
           break;
         }

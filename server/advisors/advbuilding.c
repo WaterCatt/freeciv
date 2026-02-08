@@ -193,7 +193,8 @@ void building_advisor(struct player *pplayer)
    || VUT_UTYPE == wonder_city->production.kind /* changed to defender? */
    || !is_wonder(wonder_city->production.value.building)
    || !can_city_build_improvement_now(wonder_city,
-                                      wonder_city->production.value.building)
+                                      wonder_city->production.value.building,
+                                      RPT_CERTAIN)
    || !is_improvement_productive(wonder_city,
                                  wonder_city->production.value.building)) {
     /* Find a new wonder city! */
@@ -285,7 +286,8 @@ void building_advisor_choose(struct city *pcity, struct adv_choice *choice)
 
     id = improvement_index(pimprove);
     if (pcity->server.adv->building_want[id] > want
-        && can_city_build_improvement_now(pcity, pimprove)) {
+        && can_city_build_improvement_now(pcity, pimprove,
+                                          RPT_CERTAIN)) {
       want = pcity->server.adv->building_want[id];
       chosen = pimprove;
     }
@@ -330,7 +332,7 @@ void advisor_choose_build(struct player *pplayer, struct city *pcity)
 
   /* Build the first thing we can think of (except moving small wonder). */
   improvement_iterate(pimprove) {
-    if (can_city_build_improvement_now(pcity, pimprove)
+    if (can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)
         && pimprove->genus != IG_SMALL_WONDER) {
       struct universal target = {
         .kind = VUT_IMPROVEMENT,

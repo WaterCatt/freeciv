@@ -1537,7 +1537,7 @@ static adv_want base_want(struct ai_type *ait, struct player *pplayer,
     return 0; /* Nothing to calculate here. */
   }
 
-  if (!can_city_build_improvement_now(pcity, pimprove)
+  if (!can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)
       || (is_small_wonder(pimprove)
           && city_from_small_wonder(pplayer, pimprove) != nullptr)) {
     return 0;
@@ -2214,7 +2214,7 @@ Impr_type_id dai_find_source_building(struct city *pcity,
         if (VUT_IMPROVEMENT == preq->source.kind && preq->present) {
           building = preq->source.value.building;
 
-          if (!can_city_build_improvement_now(pcity, building)
+          if (!can_city_build_improvement_now(pcity, building, RPT_CERTAIN)
               || !is_improvement(building)) {
             building = nullptr;
             break;
@@ -2223,7 +2223,7 @@ Impr_type_id dai_find_source_building(struct city *pcity,
           /* TODO: Ruleset cache for buildings with specific flag */
           improvement_iterate(impr) {
             if (improvement_has_flag(impr, preq->source.value.impr_flag)) {
-              if (can_city_build_improvement_now(pcity, impr)
+              if (can_city_build_improvement_now(pcity, impr, RPT_CERTAIN)
                   && is_improvement(impr)) {
                 if (building == nullptr) {
                   building = impr;

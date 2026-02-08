@@ -672,11 +672,12 @@ bool is_improvement_redundant(const struct city *pcity,
 }
 
 /**********************************************************************//**
-   Whether player can build given building somewhere, ignoring whether it
-   is obsolete.
+  Whether player can build given building somewhere, ignoring whether it
+  is obsolete.
 **************************************************************************/
 bool can_player_build_improvement_direct(const struct player *p,
-                                         const struct impr_type *pimprove)
+                                         const struct impr_type *pimprove,
+                                         const enum req_problem_type prob_type)
 {
   const struct req_context context = { .player = p };
 
@@ -688,12 +689,12 @@ bool can_player_build_improvement_direct(const struct player *p,
 
   requirement_vector_iterate(&pimprove->reqs, preq) {
     if (preq->range >= REQ_RANGE_PLAYER
-        && !is_req_active(&context, nullptr, preq, RPT_CERTAIN)) {
+        && !is_req_active(&context, nullptr, preq, prob_type)) {
       return FALSE;
     }
   } requirement_vector_iterate_end;
 
-  /* Check for space part construction.  This assumes that space parts have
+  /* Check for space part construction. This assumes that space parts have
    * no other effects. */
   if (building_has_effect(pimprove, EFT_SS_STRUCTURAL)) {
     space_part = TRUE;
@@ -734,9 +735,10 @@ bool can_player_build_improvement_direct(const struct player *p,
   Returns FALSE if building is obsolete.
 **************************************************************************/
 bool can_player_build_improvement_now(const struct player *p,
-                                      struct impr_type *pimprove)
+                                      struct impr_type *pimprove,
+                                      const enum req_problem_type prob_type)
 {
-  if (!can_player_build_improvement_direct(p, pimprove)) {
+  if (!can_player_build_improvement_direct(p, pimprove, prob_type)) {
     return FALSE;
   }
   if (improvement_obsolete(p, pimprove, nullptr)) {

@@ -601,11 +601,13 @@ int city_improvement_upkeep(const struct city *pcity,
                             const struct impr_type *pimprove);
 
 bool can_city_build_improvement_direct(const struct city *pcity,
-                                       const struct impr_type *pimprove);
+                                       const struct impr_type *pimprove,
+                                       const enum req_problem_type prob_type);
 bool can_city_build_improvement_later(const struct city *pcity,
                                       const struct impr_type *pimprove);
 bool can_city_build_improvement_now(const struct city *pcity,
-                                    const struct impr_type *pimprove);
+                                    const struct impr_type *pimprove,
+                                    const enum req_problem_type prob_type);
 
 bool can_city_build_unit_direct(const struct civ_map *nmap,
                                 const struct city *pcity,

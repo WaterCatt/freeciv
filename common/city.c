@@ -832,9 +832,11 @@ int city_production_turns_to_build(const struct city *pcity,
   it is obsolete.
 **************************************************************************/
 bool can_city_build_improvement_direct(const struct city *pcity,
-                                       const struct impr_type *pimprove)
+                                       const struct impr_type *pimprove,
+                                       const enum req_problem_type prob_type)
 {
-  if (!can_player_build_improvement_direct(city_owner(pcity), pimprove)) {
+  if (!can_player_build_improvement_direct(city_owner(pcity), pimprove,
+                                           prob_type)) {
     return FALSE;
   }
 
@@ -848,7 +850,7 @@ bool can_city_build_improvement_direct(const struct city *pcity,
                            .tile = pcity->tile,
                          },
                          nullptr,
-                         &(pimprove->reqs), RPT_CERTAIN);
+                         &(pimprove->reqs), prob_type);
 }
 
 /**********************************************************************//**
@@ -856,9 +858,11 @@ bool can_city_build_improvement_direct(const struct city *pcity,
   the building is obsolete.
 **************************************************************************/
 bool can_city_build_improvement_now(const struct city *pcity,
-                                    const struct impr_type *pimprove)
+                                    const struct impr_type *pimprove,
+                                    const enum req_problem_type prob_type)
 {
-  if (!can_city_build_improvement_direct(pcity, pimprove)) {
+  if (!can_city_build_improvement_direct(pcity, pimprove,
+                                         prob_type)) {
     return FALSE;
   }
   if (improvement_obsolete(city_owner(pcity), pimprove, pcity)) {
@@ -1003,7 +1007,8 @@ bool can_city_build_direct(const struct civ_map *nmap,
   case VUT_UTYPE:
     return can_city_build_unit_direct(nmap, pcity, target->value.utype);
   case VUT_IMPROVEMENT:
-    return can_city_build_improvement_direct(pcity, target->value.building);
+    return can_city_build_improvement_direct(pcity, target->value.building,
+                                             RPT_CERTAIN);
   default:
     break;
   };
@@ -1022,7 +1027,8 @@ bool can_city_build_now(const struct civ_map *nmap,
   case VUT_UTYPE:
     return can_city_build_unit_now(nmap, pcity, target->value.utype);
   case VUT_IMPROVEMENT:
-    return can_city_build_improvement_now(pcity, target->value.building);
+    return can_city_build_improvement_now(pcity, target->value.building,
+                                          RPT_CERTAIN);
   default:
     break;
   };
@@ -1108,7 +1114,8 @@ void city_choose_build_default(const struct civ_map *nmap, struct city *pcity)
 
       /* Just pick the first available item. */
       improvement_iterate(pimprove) {
-        if (can_city_build_improvement_direct(pcity, pimprove)) {
+        if (can_city_build_improvement_direct(pcity, pimprove,
+                                              RPT_CERTAIN)) {
           found = TRUE;
           pcity->production.kind = VUT_IMPROVEMENT;
           pcity->production.value.building = pimprove;

@@ -496,7 +496,8 @@ static void city_global_turn_notify(struct conn_list *dest)
     if (VUT_IMPROVEMENT == pcity->production.kind
         && is_great_wonder(pimprove)
         && (1 >= city_production_turns_to_build(pcity, TRUE)
-        && can_city_build_improvement_now(pcity, pimprove))) {
+            && can_city_build_improvement_now(pcity, pimprove,
+                                              RPT_CERTAIN))) {
       notify_conn(dest, city_tile(pcity),
                   E_WONDER_WILL_BE_BUILT, ftc_server,
                   _("Notice: Wonder %s in %s will be finished next turn."),
@@ -2585,7 +2586,8 @@ void choose_build_target(struct player *pplayer, struct city *pcity)
     }
     break;
   case VUT_IMPROVEMENT:
-    if (can_city_build_improvement_now(pcity, pcity->production.value.building)) {
+    if (can_city_build_improvement_now(pcity, pcity->production.value.building,
+                                       RPT_CERTAIN)) {
       /* We can build space and coinage again, and possibly others. */
       log_base(LOG_BUILD_TARGET, "%s repeats building %s", city_name_get(pcity),
                improvement_rule_name(pcity->production.value.building));
@@ -2614,11 +2616,11 @@ static const struct impr_type *building_upgrades_to(struct city *pcity,
   const struct impr_type *check = pimprove;
   const struct impr_type *best_upgrade = nullptr;
 
-  if (!can_city_build_improvement_direct(pcity, check)) {
+  if (!can_city_build_improvement_direct(pcity, check, RPT_CERTAIN)) {
     return nullptr;
   }
   while (valid_improvement(check = improvement_replacement(check))) {
-    if (can_city_build_improvement_direct(pcity, check)) {
+    if (can_city_build_improvement_direct(pcity, check, RPT_CERTAIN)) {
       best_upgrade = check;
     }
   }
@@ -2634,7 +2636,8 @@ static void upgrade_building_prod(struct city *pcity)
   const struct impr_type *producing = pcity->production.value.building;
   const struct impr_type *upgrading = building_upgrades_to(pcity, producing);
 
-  if (upgrading && can_city_build_improvement_now(pcity, upgrading)) {
+  if (upgrading
+      && can_city_build_improvement_now(pcity, upgrading, RPT_CERTAIN)) {
     notify_player(city_owner(pcity), city_tile(pcity),
                   E_UNIT_UPGRADED, ftc_server,
                   _("Production of %s is upgraded to %s in %s."),
@@ -2813,7 +2816,7 @@ static bool city_build_building(struct player *pplayer, struct city *pcity)
   /* The final (after upgrade) build target */
   pimprove = pcity->production.value.building;
 
-  if (!can_city_build_improvement_now(pcity, pimprove)) {
+  if (!can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)) {
     notify_player(pplayer, city_tile(pcity), E_CITY_CANTBUILD, ftc_server,
                   _("%s is building %s, which is no longer available."),
                   city_link(pcity),

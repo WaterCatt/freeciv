@@ -1413,7 +1413,7 @@ void dai_build_adv_override(struct ai_type *ait, struct city *pcity,
       int id = improvement_index(pimprove);
 
       if (pcity->server.adv->building_want[id] > want
-          && can_city_build_improvement_now(pcity, pimprove)) {
+          && can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)) {
         want = pcity->server.adv->building_want[id];
         chosen = pimprove;
       }

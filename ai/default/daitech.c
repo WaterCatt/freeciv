@@ -452,7 +452,8 @@ struct unit_type *dai_wants_defender_against(struct ai_type *ait,
 
       building = utype_needs_improvement(deftype, pcity);
       if (building != NULL
-          && !can_player_build_improvement_direct(pplayer, building)) {
+          && !can_player_build_improvement_direct(pplayer, building,
+                                                  RPT_CERTAIN)) {
         const struct req_context context = {
           .player = pplayer,
           .city = pcity,
@@ -558,7 +559,8 @@ struct unit_type *dai_wants_role_unit(struct ai_type *ait, struct player *pplaye
 
       building = utype_needs_improvement(iunit, pcity);
       if (building != NULL
-          && !can_player_build_improvement_direct(pplayer, building)) {
+          && !can_player_build_improvement_direct(pplayer, building,
+                                                  RPT_CERTAIN)) {
         requirement_vector_iterate(&building->reqs, preq) {
           if (VUT_ADVANCE == preq->source.kind && preq->present) {
             int iimprtech = advance_number(preq->source.value.advance);

@@ -1488,7 +1488,8 @@ static void process_attacker_want(struct ai_type *ait,
                                                            pcity)))) {
             CITY_LOG(LOG_DEBUG, pcity, "cannot build unit %s",
                      utype_rule_name(punittype));
-          } else if (can_city_build_improvement_now(pcity, impr_req)) {
+          } else if (can_city_build_improvement_now(pcity, impr_req,
+                                                    RPT_CERTAIN)) {
             /* Building this unit requires a specific type of improvement.
              * So we build this improvement instead.  This may not be the
              * best behavior. */
@@ -1898,7 +1899,7 @@ struct adv_choice *military_advisor_choose_build(struct ai_type *ait,
 
       if (wall_id != B_LAST
           && pcity->server.adv->building_want[wall_id] != 0 && our_def != 0
-          && can_city_build_improvement_now(pcity, pimprove)
+          && can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)
           && (danger < 101 || num_defenders > 1
               || (city_data->grave_danger == 0
                   && pplayer->economic.gold

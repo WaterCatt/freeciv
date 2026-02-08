@@ -188,11 +188,13 @@ bool is_improvement_redundant(const struct city *pcity,
                               const struct impr_type *pimprove);
 
 bool can_player_build_improvement_direct(const struct player *p,
-                                         const struct impr_type *pimprove);
+                                         const struct impr_type *pimprove,
+                                         const enum req_problem_type prob_type);
 bool can_player_build_improvement_later(const struct player *p,
                                         const struct impr_type *pimprove);
 bool can_player_build_improvement_now(const struct player *p,
-                                      struct impr_type *pimprove);
+                                      struct impr_type *pimprove,
+                                      const enum req_problem_type prob_type);
 
 /* Initialization and iteration */
 void improvements_init(void);

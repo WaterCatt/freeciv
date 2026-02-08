@@ -816,7 +816,7 @@ bool api_methods_player_can_build_impr_direct(lua_State *L, Player *pplayer,
   LUASCRIPT_CHECK_SELF(L, pplayer, FALSE);
   LUASCRIPT_CHECK_ARG_NIL(L, itype, 3, Building_Type, FALSE);
 
-  return can_player_build_improvement_direct(pplayer, itype);
+  return can_player_build_improvement_direct(pplayer, itype, RPT_CERTAIN);
 }
 
 /**********************************************************************//**

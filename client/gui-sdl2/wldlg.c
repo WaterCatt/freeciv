@@ -1418,13 +1418,15 @@ void popup_worklist_editor(struct city *pcity, struct global_worklist *gwl)
   pstr->bgcol = (SDL_Color) {0, 0, 0, 0};
 
   improvement_iterate(pimprove) {
-    can_build = can_player_build_improvement_now(client.conn.playing, pimprove);
+    can_build = can_player_build_improvement_now(client.conn.playing, pimprove,
+                                                 RPT_CERTAIN);
     can_eventually_build =
         can_player_build_improvement_later(client.conn.playing, pimprove);
 
     /* If there's a city, can the city build the improvement? */
     if (pcity) {
-      can_build = can_build && can_city_build_improvement_now(pcity, pimprove);
+      can_build = can_build && can_city_build_improvement_now(pcity, pimprove,
+                                                              RPT_CERTAIN);
       can_eventually_build = can_eventually_build
         && can_city_build_improvement_later(pcity, pimprove);
     }
