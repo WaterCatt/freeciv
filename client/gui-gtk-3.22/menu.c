@@ -41,6 +41,7 @@
 #include "mapview_common.h"
 #include "options.h"
 #include "tilespec.h"
+#include "zoom.h"
 
 /* client/gui-gtk-3.22 */
 #include "chatline.h"
@@ -216,6 +217,8 @@ static void toggle_fog_callback(GtkCheckMenuItem *item, gpointer data);
 static void scenario_properties_callback(GtkMenuItem *item, gpointer data);
 static void save_scenario_callback(GtkMenuItem *item, gpointer data);
 static void center_view_callback(GtkMenuItem *item, gpointer data);
+static void zoom_in_callback(GtkMenuItem *item, gpointer data);
+static void zoom_out_callback(GtkMenuItem *item, gpointer data);
 static void report_economy_callback(GtkMenuItem *item, gpointer data);
 static void report_research_callback(GtkMenuItem *item, gpointer data);
 static void multiplier_callback(GtkMenuItem *item, gpointer data);
@@ -508,6 +511,10 @@ static struct menu_entry_info menu_entries[] =
 
   { "CENTER_VIEW", N_("_Center View"), GDK_KEY_c, 0,
     G_CALLBACK(center_view_callback), MGROUP_PLAYER },
+  { "ZOOM_IN", N_("_Zoom in"), GDK_KEY_plus, 0,
+    G_CALLBACK(zoom_in_callback), MGROUP_PLAYER },
+  { "ZOOM_OUT", N_("_Zoom out"), GDK_KEY_minus, 0,
+    G_CALLBACK(zoom_out_callback), MGROUP_PLAYER },
   { "REPORT_ECONOMY", N_("_Economy"), GDK_KEY_F5, 0,
     G_CALLBACK(report_economy_callback), MGROUP_PLAYER },
   { "REPORT_RESEARCH", N_("_Research"), GDK_KEY_F6, 0,
@@ -2083,6 +2090,22 @@ static void clean_callback(GtkMenuItem *item, gpointer data)
 static void center_view_callback(GtkMenuItem *action, gpointer data)
 {
   center_on_unit();
+}
+
+/************************************************************************//**
+  Action "ZOOM_IN" callback.
+****************************************************************************/
+static void zoom_in_callback(GtkMenuItem *action, gpointer data)
+{
+  zoom_step_up();
+}
+
+/************************************************************************//**
+  Action "ZOOM_OUT" callback.
+****************************************************************************/
+static void zoom_out_callback(GtkMenuItem *action, gpointer data)
+{
+  zoom_step_down();
 }
 
 /************************************************************************//**
