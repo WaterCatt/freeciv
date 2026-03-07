@@ -79,14 +79,14 @@ static void calc_activity(struct actcalc *calc, const struct tile *ptile,
      * Server may still be sending more information about tile or
      * unit activity changes, and client data is not yet consistent. */
     if (is_build_activity(act)
-        && punit->activity_target != NULL) {
+        && punit->activity_target != nullptr) {
       int eidx = extra_index(punit->activity_target);
 
       t->extra_total[eidx][act] += punit->activity_count;
       t->extra_total[eidx][act] += get_activity_rate_this_turn(punit);
       t->extra_units[eidx][act] += get_activity_rate(punit);
     } else if (is_clean_activity(act)
-               && punit->activity_target != NULL) {
+               && punit->activity_target != nullptr) {
       int eidx = extra_index(punit->activity_target);
 
       t->rmextra_total[eidx][act] += punit->activity_count;
@@ -177,7 +177,8 @@ static void calc_activity(struct actcalc *calc, const struct tile *ptile,
       int units_total = t->activity_units[act];
 
       if (units_total > 0) {
-        remains = tile_activity_time(act, ptile, NULL) - t->activity_total[act];
+        remains
+          = tile_activity_time(act, ptile, nullptr) - t->activity_total[act];
         if (remains > 0) {
           turns = 1 + (remains + units_total - 1) / units_total;
         } else {
@@ -199,7 +200,7 @@ static void calc_activity(struct actcalc *calc, const struct tile *ptile,
   How many turns until the activity 'act' on target 'tgt' at 'ptile' would
   be complete, taking into account existing units and possible contribution
   from 'pmodunit' if it were also to help with the activity ('pmodunit' may
-  be NULL to just account for current activities).
+  be nullptr to just account for current activities).
 ****************************************************************************/
 int turns_to_activity_done(const struct tile *ptile,
                            Activity_type_id act,
@@ -242,7 +243,7 @@ const char *concat_tile_activity_text(struct tile *ptile)
 
   astr_clear(&str);
 
-  calc_activity(calc, ptile, NULL, ACTIVITY_LAST, NULL);
+  calc_activity(calc, ptile, nullptr, ACTIVITY_LAST, nullptr);
 
   activity_type_iterate(i) {
     if (is_build_activity(i)) {
@@ -322,9 +323,9 @@ void combat_odds_to_astr(struct astring *str, struct unit_list *punits,
 
     unit_list_iterate(ptile->units, tile_unit) {
       if (unit_owner(tile_unit) != unit_owner(pfocus)) {
-        int att = unit_win_chance(nmap, pfocus, tile_unit, NULL) * 100;
+        int att = unit_win_chance(nmap, pfocus, tile_unit, nullptr) * 100;
         int def = (1.0 - unit_win_chance(nmap, tile_unit, pfocus,
-                                         NULL)) * 100;
+                                         nullptr)) * 100;
 
         found = TRUE;
 
@@ -351,7 +352,7 @@ void combat_odds_to_astr(struct astring *str, struct unit_list *punits,
     const char *veteran_name =
       utype_veteran_name_translation(ptype, punit->veteran);
 
-    if (veteran_name != NULL) {
+    if (veteran_name != nullptr) {
       astr_add(str, " (%s)", veteran_name);
     }
   }
