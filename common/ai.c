@@ -41,8 +41,8 @@ struct ai_timer {
 static struct ai_timer *ai_timer_get(const struct ai_type *ai);
 static struct ai_timer *ai_timer_player_get(const struct player *pplayer);
 
-static struct ai_timer *aitimers = NULL;
-static struct ai_timer *aitimer_plrs = NULL;
+static struct ai_timer *aitimers = nullptr;
+static struct ai_timer *aitimer_plrs = nullptr;
 
 /*************************************************************************//**
   Allocate resources for the AI timers.
@@ -51,15 +51,15 @@ void ai_timer_init(void)
 {
   int i;
 
-  fc_assert_ret(aitimers == NULL);
-  fc_assert_ret(aitimer_plrs == NULL);
+  fc_assert_ret(aitimers == nullptr);
+  fc_assert_ret(aitimer_plrs == nullptr);
 
   aitimers = fc_calloc(FREECIV_AI_MOD_LAST, sizeof(*aitimers));
   for (i = 0; i < FREECIV_AI_MOD_LAST; i++) {
     struct ai_timer *aitimer = aitimers + i;
 
     aitimer->count = 0;
-    aitimer->timer = NULL;
+    aitimer->timer = nullptr;
   }
 
   aitimer_plrs = fc_calloc(FREECIV_AI_MOD_LAST * MAX_NUM_PLAYER_SLOTS,
@@ -68,7 +68,7 @@ void ai_timer_init(void)
     struct ai_timer *aitimer = aitimer_plrs + i;
 
     aitimer->count = 0;
-    aitimer->timer = NULL;
+    aitimer->timer = nullptr;
   }
 }
 
@@ -102,10 +102,10 @@ void ai_timer_free(void)
     }
   }
   free(aitimers);
-  aitimers = NULL;
+  aitimers = nullptr;
 
   free(aitimer_plrs);
-  aitimer_plrs = NULL;
+  aitimer_plrs = nullptr;
 }
 
 /*************************************************************************//**
@@ -115,8 +115,8 @@ static struct ai_timer *ai_timer_get(const struct ai_type *ai)
 {
   struct ai_timer *aitimer;
 
-  fc_assert_ret_val(ai != NULL, NULL);
-  fc_assert_ret_val(aitimers != NULL, NULL);
+  fc_assert_ret_val(ai != nullptr, nullptr);
+  fc_assert_ret_val(aitimers != nullptr, nullptr);
 
   aitimer = aitimers + ai_type_number(ai);
 
@@ -137,9 +137,9 @@ static struct ai_timer *ai_timer_player_get(const struct player *pplayer)
 {
   struct ai_timer *aitimer;
 
-  fc_assert_ret_val(pplayer != NULL, NULL);
-  fc_assert_ret_val(pplayer->ai != NULL, NULL);
-  fc_assert_ret_val(aitimer_plrs != NULL, NULL);
+  fc_assert_ret_val(pplayer != nullptr, nullptr);
+  fc_assert_ret_val(pplayer->ai != nullptr, nullptr);
+  fc_assert_ret_val(aitimer_plrs != nullptr, nullptr);
 
   aitimer = aitimer_plrs + (player_index(pplayer) * FREECIV_AI_MOD_LAST
                             + ai_type_number(pplayer->ai));
@@ -161,8 +161,8 @@ void ai_timer_start(const struct ai_type *ai)
 {
   struct ai_timer *aitimer = ai_timer_get(ai);
 
-  fc_assert_ret(aitimer != NULL);
-  fc_assert_ret(aitimer->timer != NULL);
+  fc_assert_ret(aitimer != nullptr);
+  fc_assert_ret(aitimer->timer != nullptr);
 
   if (aitimer->count == 0) {
     log_debug("AI timer start  [%15.3f] ---- (AI type: %s)",
@@ -182,8 +182,8 @@ void ai_timer_stop(const struct ai_type *ai)
 {
   struct ai_timer *aitimer = ai_timer_get(ai);
 
-  fc_assert_ret(aitimer != NULL);
-  fc_assert_ret(aitimer->timer != NULL);
+  fc_assert_ret(aitimer != nullptr);
+  fc_assert_ret(aitimer->timer != nullptr);
 
   if (aitimer->count > 0) {
     if (aitimer->count == 1) {
@@ -208,8 +208,8 @@ void ai_timer_player_start(const struct player *pplayer)
 {
   struct ai_timer *aitimer = ai_timer_player_get(pplayer);
 
-  fc_assert_ret(aitimer != NULL);
-  fc_assert_ret(aitimer->timer != NULL);
+  fc_assert_ret(aitimer != nullptr);
+  fc_assert_ret(aitimer->timer != nullptr);
 
   if (aitimer->count == 0) {
     log_debug("AI timer start  [%15.3f] P%03d (AI type: %s) %s",
@@ -231,8 +231,8 @@ void ai_timer_player_stop(const struct player *pplayer)
 {
   struct ai_timer *aitimer = ai_timer_player_get(pplayer);
 
-  fc_assert_ret(aitimer != NULL);
-  fc_assert_ret(aitimer->timer != NULL);
+  fc_assert_ret(aitimer != nullptr);
+  fc_assert_ret(aitimer->timer != nullptr);
 
   if (aitimer->count > 0) {
     if (aitimer->count == 1) {
@@ -295,7 +295,7 @@ struct ai_type *ai_type_by_name(const char *search)
     }
   } ai_type_iterate_end;
 
-  return NULL;
+  return nullptr;
 }
 
 /*************************************************************************//**
@@ -307,7 +307,7 @@ struct ai_type *ai_type_alloc(void)
     log_error(_("Too many AI modules. Max is %d."),
               FREECIV_AI_MOD_LAST);
 
-    return NULL;
+    return nullptr;
   }
 
   return get_ai_type(ai_type_count++);
@@ -334,22 +334,23 @@ int ai_type_get_count(void)
 *****************************************************************************/
 const char *ai_name(const struct ai_type *ai)
 {
-  fc_assert_ret_val(ai, NULL);
+  fc_assert_ret_val(ai, nullptr);
+
   return ai->name;
 }
 
 /*************************************************************************//**
   Return usable ai type name, if possible. This is either the name
-  given as parameter or some fallback name for it. NULL is returned if
+  given as parameter or some fallback name for it. Nullptr is returned if
   no name matches.
 *****************************************************************************/
 const char *ai_type_name_or_fallback(const char *orig_name)
 {
-  if (orig_name == NULL) {
-    return NULL;
+  if (orig_name == nullptr) {
+    return nullptr;
   }
 
-  if (ai_type_by_name(orig_name) != NULL) {
+  if (ai_type_by_name(orig_name) != nullptr) {
     return orig_name;
   }
 
@@ -359,13 +360,13 @@ const char *ai_type_name_or_fallback(const char *orig_name)
 
     fb = ai_type_by_name("classic");
 
-    if (fb != NULL) {
+    if (fb != nullptr) {
       /* Get pointer to persistent name of the ai_type */
       return ai_name(fb);
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 /*************************************************************************//**
