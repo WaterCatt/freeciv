@@ -2745,7 +2745,7 @@ void package_city(struct city *pcity, struct packet_city_info *packet,
     web_packet->granary_turns = city_turns_to_grow(pcity);
 
     improvement_iterate(pimprove) {
-      if (can_city_build_improvement_now(pcity, pimprove)) {
+      if (can_city_build_improvement_now(pcity, pimprove, RPT_CERTAIN)) {
         BV_SET(web_packet->can_build_improvement, improvement_index(pimprove));
       }
     } improvement_iterate_end;
