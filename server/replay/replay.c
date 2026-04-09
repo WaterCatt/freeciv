@@ -260,6 +260,7 @@ static void replay_close_connection(void)
     return;
   }
 
+  conn_list_remove(game.all_connections, replay_state.conn);
   conn_list_remove(game.est_connections, replay_state.conn);
   conn_list_remove(game.glob_observers, replay_state.conn);
 
@@ -350,6 +351,7 @@ bool replay_recorder_start(void)
   conn_set_capability(replay_state.conn, our_capability);
   post_receive_packet_server_join_reply(replay_state.conn, &join_reply);
 
+  conn_list_append(game.all_connections, replay_state.conn);
   conn_list_append(game.est_connections, replay_state.conn);
   conn_list_append(game.glob_observers, replay_state.conn);
 

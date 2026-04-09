@@ -71,6 +71,9 @@
 /* Produce debug version */
 #mesondefine FREECIV_DEBUG
 
+/* Build server-side replay recorder support */
+#mesondefine FREECIV_REPLAY_RECORDER
+
 /* Enable audio */
 #mesondefine AUDIO_SDL
 
