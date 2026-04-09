@@ -116,6 +116,7 @@
 #include "sernet.h"
 #include "settings.h"
 #include "spacerace.h"
+#include "replay.h"
 #include "srv_log.h"
 #include "srv_signal.h"
 #include "stdinhand.h"
@@ -1958,6 +1959,8 @@ void start_game(void)
 **************************************************************************/
 void fc__noreturn server_quit(void)
 {
+  replay_recorder_stop();
+
   if (server_state() == S_S_RUNNING) {
     /* Quitting mid-game. */
 
@@ -3533,6 +3536,17 @@ static void srv_ready(void)
     script_fcdb_call("game_start", (lua_Integer)game.server.dbid,
                      &game.server.dbid);
     log_debug("dbid: %d", game.server.dbid);
+  }
+
+  if (replay_recorder_start()) {
+    replay_recorder_begin_snapshot();
+    send_rulesets(replay_recorder_dest());
+    send_server_settings(replay_recorder_dest());
+    send_scenario_info(replay_recorder_dest());
+    send_scenario_description(replay_recorder_dest());
+    send_game_info(replay_recorder_dest());
+    send_all_info(replay_recorder_dest());
+    replay_recorder_end_snapshot();
   }
 
   CALL_FUNC_EACH_AI(game_start);

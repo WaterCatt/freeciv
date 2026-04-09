@@ -58,6 +58,7 @@
 #include "mood.h"
 #include "notify.h"
 #include "plrhand.h"
+#include "replay.h"
 #include "sernet.h"
 #include "srv_main.h"
 #include "stdinhand.h"
@@ -1200,6 +1201,12 @@ static void send_player_info_c_real(struct player *src,
     send_packet_player_info(pconn, &info);
     web_send_packet(player_info_addition, pconn, webp_ptr);
   } conn_list_iterate_end;
+
+  if (replay_recorder_should_send(dest)) {
+    package_player_info(src, &info, webp_ptr, nullptr, INFO_FULL);
+    send_packet_player_info(replay_recorder_connection(), &info);
+    web_send_packet(player_info_addition, replay_recorder_connection(), webp_ptr);
+  }
 }
 
 /**********************************************************************//**
@@ -1255,6 +1262,15 @@ static void send_player_diplstate_c_real(struct player *plr1,
       send_packet_player_diplstate(pconn, &packet_ds);
     } players_iterate_end;
   } conn_list_iterate_end;
+
+  if (replay_recorder_should_send(dest)) {
+    players_iterate(plr2) {
+      struct packet_player_diplstate packet_ds;
+
+      package_player_diplstate(plr1, plr2, &packet_ds, nullptr, INFO_FULL);
+      send_packet_player_diplstate(replay_recorder_connection(), &packet_ds);
+    } players_iterate_end;
+  }
 }
 
 /**********************************************************************//**

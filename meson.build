@@ -190,6 +190,10 @@ if get_option('buildtype') == 'release'
   pub_conf_data.set('FREECIV_NDEBUG', 1)
 endif
 
+if get_option('replay-recorder')
+  priv_conf_data.set('FREECIV_REPLAY_RECORDER', 1)
+endif
+
 if host_system == 'windows'
   def_storage_dir = '~\\\\.freeciv'
 else
@@ -1193,7 +1197,7 @@ common_inc = include_directories(cross_inc_path,
   'common/aicore')
 
 server_inc = [common_inc, include_directories('server', 'server/advisors',
-              'server/scripting', 'server/generator', 'server/ruleset',
+              'server/scripting', 'server/generator', 'server/replay', 'server/ruleset',
               'server/savegame', 'ai', 'ai/classic')]
 
 client_inc = [common_inc, include_directories('client', 'client/include',
@@ -1686,6 +1690,7 @@ server_lib = static_library('fc_server',
   'server/mood.c',
   'server/notify.c',
   'server/plrhand.c',
+  'server/replay/replay.c',
   'server/report.c',
   'server/sanitycheck.c',
   'server/score.c',

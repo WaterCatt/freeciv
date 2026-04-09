@@ -130,3 +130,8 @@ option('fcdb',
        choices: ['sqlite3','mariadb','odbc'],
        value: ['sqlite3'],
        description: 'fcdb (player authentication) backends to build')
+
+option('replay-recorder',
+       type: 'boolean',
+       value: false,
+       description: 'Build server-side replay recorder support')

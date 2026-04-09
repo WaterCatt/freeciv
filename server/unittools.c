@@ -68,6 +68,7 @@
 #include "maphand.h"
 #include "notify.h"
 #include "plrhand.h"
+#include "replay.h"
 #include "sanitycheck.h"
 #include "sernet.h"
 #include "srv_main.h"
@@ -2917,6 +2918,10 @@ void send_unit_info(struct conn_list *dest, struct unit *punit)
       }
     }
   } conn_list_iterate_end;
+
+  if (replay_recorder_should_send(dest)) {
+    send_packet_unit_info(replay_recorder_connection(), &info);
+  }
 }
 
 /**********************************************************************//**

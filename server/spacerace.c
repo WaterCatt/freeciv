@@ -33,6 +33,7 @@
 /* server */
 #include "plrhand.h"
 #include "notify.h"
+#include "replay.h"
 #include "srv_main.h"
 
 #include "spacerace.h"
@@ -157,6 +158,9 @@ void send_spaceship_info(struct player *src, struct conn_list *dest)
       info.structure = ship->structure;
 
       lsend_packet_spaceship_info(dest, &info);
+      if (replay_recorder_should_send(dest)) {
+        send_packet_spaceship_info(replay_recorder_connection(), &info);
+      }
     }
   } players_iterate_end;
 }

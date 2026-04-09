@@ -69,6 +69,7 @@
 #include "maphand.h"
 #include "notify.h"
 #include "plrhand.h"
+#include "replay.h"
 #include "sanitycheck.h"
 #include "sernet.h"
 #include "spacerace.h"
@@ -2385,6 +2386,10 @@ void send_city_info(struct player *dest, struct city *pcity)
     broadcast_city_info(pcity);
   } else {
     send_city_info_at_tile(dest, dest->connections, pcity, pcity->tile);
+
+    if (replay_recorder_should_send(dest->connections)) {
+      send_city_info_at_tile(nullptr, replay_recorder_dest(), pcity, pcity->tile);
+    }
   }
 
   /* Sending counters */

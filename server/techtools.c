@@ -43,6 +43,7 @@
 #include "maphand.h"
 #include "notify.h"
 #include "plrhand.h"
+#include "replay.h"
 #include "unittools.h"
 
 /* server/scripting */
@@ -337,6 +338,10 @@ void send_research_info(const struct research *presearch,
       send_packet_research_info(pconn, &full_info);
     }
   } conn_list_iterate_end;
+
+  if (replay_recorder_should_send(dest)) {
+    send_packet_research_info(replay_recorder_connection(), &full_info);
+  }
 }
 
 /************************************************************************//**
