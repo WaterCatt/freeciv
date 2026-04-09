@@ -13,3 +13,9 @@
 /Makefile.in
 /configure
 /freeciv-CI.log
+.idea/
+buildDir/
+*.sav
+*.sav.zst
+*.fcreplay
+*.log
