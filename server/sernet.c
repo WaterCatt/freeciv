@@ -85,6 +85,7 @@
 #include "console.h"
 #include "meta.h"
 #include "plrhand.h"
+#include "replay.h"
 #include "srv_main.h"
 #include "stdinhand.h"
 #include "voting.h"
@@ -645,6 +646,10 @@ enum server_events server_sniff_all_input(void)
       send_ping_times_to_all();
 
       conn_list_iterate(game.all_connections, pconn) {
+        if (pconn == replay_recorder_connection()) {
+          continue;
+        }
+
         if ((!pconn->server.is_closing
              && 0 < timer_list_size(pconn->server.ping_timers)
              && timer_read_seconds(timer_list_front
