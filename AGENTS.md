@@ -49,7 +49,7 @@ meson compile -C buildDir
 ### Clean Rebuild
 ```bash
 rm -rf buildDir
-meson setup buildDir -Daudio=none -Dclients=qt -Dfcmp=qt -Dnls=false
+meson setup buildDir -Daudio=none -Dclients=qt -Dfcmp=qt -Dnls=false -Dreplay-recorder=true
 meson compile -C buildDir
 ```
 ---
@@ -66,20 +66,81 @@ meson compile -C buildDir
 ```bash
 ./buildDir/freeciv-qt
 ```
+
+### Replay Client Smoke Test
+
+```bash
+./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay --debug 3 -- -platform offscreen
+```
+
+This is the current minimal non-UI replay playback entrypoint for validation.
+
+---
+
+## Current Replay Entry Points
+
+### Server-side recorder
+Replay recording is currently enabled only when built with:
+
+`-Dreplay-recorder=true`
+
+### Client-side playback
+Replay playback is currently started via:
+
+```bash
+./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay --debug 3 -- -platform offscreen
+```
+This is currently the main non-UI validation path.
+
 ---
 
 ## Manual Verification
 
+### Recording Smoke Test
+
 Recommended flow:
 
-1. Start the server
-2. Start the client
-3. Connect manually using:
-    - host: `localhost`
-    - port: `5556`
+1. Start the server:
+   `./buildDir/freeciv-server`
 
-Important:  
-Do not use "New Game" if the server is already running manually. In that case, connect to the existing local server instead.
+2. Start the client:
+   `./buildDir/freeciv-qt`
+
+3. Connect manually using:
+   - host: `localhost`
+   - port: `5556`
+
+4. Start a game
+
+5. Let several turns pass
+
+6. Quit the client normally
+
+7. Quit the server normally by typing:
+   `quit`
+
+8. Verify that a fresh `.fcreplay` file exists in the project root:
+   `ls -lh replay-*.fcreplay`
+
+### Playback Smoke Test
+
+Run:
+
+```bash
+./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay --debug 3 -- -platform offscreen
+```
+
+### Expected current behavior:
+
+* replay file loads
+* snapshot is applied
+* event frames are applied sequentially
+* replay completes without crashing
+
+### Important:
+
+* For manual server/client testing, connect to the already running local server.
+* Do not kill the server process abruptly if you want the replay file finalized correctly.
 
 ---
 
@@ -100,6 +161,22 @@ Important directories and files:
 - `common/` — shared structures and protocol
 - `common/networking/packets.def` — key packet/event definitions
 - `server/savegame/savegame2.c` and `server/savegame/savegame3.c` — savegame implementation
+
+---
+
+## Replay-Specific Files (Current MVP)
+
+Important files for the current replay implementation:
+
+- `server/replay/replay.c`
+- `server/replay/replay.h`
+- `client/replay.c`
+- `client/replay.h`
+- `server/srv_main.c`
+- `server/connecthand.c`
+- `client/client_main.c`
+- `client/gui-qt/fc_client.cpp`
+
 
 ---
 
@@ -152,18 +229,23 @@ Important constraints:
 
 ---
 
-## Recommended Replay Architecture
+## Current Replay Architecture
 
-Replay file structure should be based on:
+Current implemented MVP architecture is packet-stream based.
 
-1. Initial savegame state
-2. Ordered stream of gameplay/network packets
+Replay file currently contains:
 
-Equivalent model:
+1. File header and metadata
+2. `SNAP` chunk with initial bootstrap/snapshot transport frames
+3. `EVNT` chunk with subsequent transport frames
 
-`replay = initial_state + packet_stream`
+The current implementation reuses the normal client packet decode and packet handling pipeline.
 
-This is the preferred design direction unless investigation shows a better minimal solution.
+Current practical model:
+
+`replay = snapshot_frames + event_frames`
+
+Long-term architecture may still evolve toward snapshot/checkpoint + packet stream, but the current MVP is based on canonical server-generated transport frames recorded from a dedicated replay connection.
 
 ---
 
@@ -199,18 +281,26 @@ The agent should propose:
 
 ### Phase 3 — Minimal Implementation
 
-- add replay recording toggle / scaffolding
-- record packets/events
-- write replay files
+Completed MVP status:
+- replay recorder build toggle added
+- dedicated server-side replay capture connection added
+- replay files are written as `.fcreplay`
+- initial snapshot/bootstrap transport frames are recorded
+- subsequent event transport frames are recorded
 
 ---
 
-### Phase 4 — Playback
+### Phase 5 — UI
 
-- read replay files
-- initialize replay state
-- feed recorded events back into the client flow
+Not implemented yet.
 
+Planned:
+- replay buttons
+- play / pause
+- speed controls
+- replay timeline
+- current turn/date display
+- 
 ---
 
 ### Phase 5 — UI
@@ -244,15 +334,28 @@ The agent should propose:
 
 ## Testing
 
-Minimum validation flow:
+### Current minimum validation flow
 
+#### Recording
 1. Start the server
 2. Connect the client
-3. Play at least 20 turns
-4. Record a replay
-5. Replay the recorded session
+3. Start a game
+4. Let several turns pass
+5. Quit the client
+6. Quit the server with `quit`
+7. Verify that a `.fcreplay` file was created
 
-If existing tests do not cover replay behavior, add new tests.
+#### Playback
+1. Run:
+   `./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay --debug 3 -- -platform offscreen`
+2. Verify that:
+   - replay loads successfully
+   - snapshot is applied
+   - event frames are applied
+   - replay completes without crashing
+   - turn/year progress during replay
+
+If existing tests do not cover replay behavior, add dedicated replay tests.
 
 ---
 
@@ -309,7 +412,12 @@ When something fails:
 - build works
 - server starts
 - client starts
-- local connection currently requires manually starting the server first
+- server-side replay recording MVP works
+- `.fcreplay` files are generated successfully
+- client-side replay loading works
+- client-side sequential replay playback works
+- replay currently runs without a dedicated replay UI
+- replay is currently started via command line using `--replay`
 
 ---
 
@@ -317,11 +425,11 @@ When something fails:
 
 The next step is:
 
-Investigate the Freeciv architecture for replay integration without changing code.
+Implement minimal replay controls on top of the working playback loop, without building the full replay UI yet.
 
-The first deliverable should be:
+The next deliverable should be:
 
-- a short architecture summary
-- the key files/modules involved
-- 2–3 possible replay integration strategies
-- a recommended minimal implementation plan
+- pause/resume support
+- basic replay speed control in code
+- single-step-forward support
+- validation that replay controls do not break normal live networking
