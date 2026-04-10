@@ -130,6 +130,27 @@ Run:
 ./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay --debug 3 -- -platform offscreen
 ```
 
+---
+
+### Replay UI Manual Check
+
+Run:
+
+```bash
+./buildDir/freeciv-qt --replay /absolute/path/to/file.fcreplay
+```
+Current expected behavior:
+
+* replay controls are visible
+* replay playback runs
+* replay should eventually show the in-game map view
+
+Current known issue:
+
+* replay may remain on a loading-style screen instead of showing the map view
+
+---
+
 ### Expected current behavior:
 
 * replay file loads
@@ -170,12 +191,15 @@ Important files for the current replay implementation:
 
 - `server/replay/replay.c`
 - `server/replay/replay.h`
-- `client/replay.c`
-- `client/replay.h`
 - `server/srv_main.c`
 - `server/connecthand.c`
+- `client/replay.c`
+- `client/replay.h`
 - `client/client_main.c`
+- `client/client_main.h`
 - `client/gui-qt/fc_client.cpp`
+- `client/gui-qt/fc_client.h`
+- `client/gui-qt/chatline.cpp`
 
 
 ---
@@ -292,22 +316,19 @@ Completed MVP status:
 
 ### Phase 5 — UI
 
-Not implemented yet.
+Current MVP status:
+- minimal Qt replay controls UI exists
+- play / pause is implemented
+- speed selection is implemented
+- single-step-forward is implemented
+- replay status display exists
+- replay mode is isolated from unsafe live Qt actions
 
-Planned:
-- replay buttons
-- play / pause
-- speed controls
-- replay timeline
-- current turn/date display
-- 
----
-
-### Phase 5 — UI
-
-- replay buttons
-- speed controls
-- replay timeline
+Not implemented yet:
+- replay timeline / progress bar
+- true seek
+- checkpoints
+- multiple viewpoints
 
 ---
 
@@ -425,11 +446,12 @@ When something fails:
 
 The next step is:
 
-Implement minimal replay controls on top of the working playback loop, without building the full replay UI yet.
+Fix replay presentation/view-state integration so replay mode shows the actual in-game map view instead of remaining on a loading-style screen.
 
 The next deliverable should be:
 
-- pause/resume support
-- basic replay speed control in code
-- single-step-forward support
-- validation that replay controls do not break normal live networking
+- identify the missing client state/page/view transition in replay mode
+- switch replay mode into the proper in-game map view after snapshot load
+- keep replay controls visible and functional
+- keep live-networking actions disabled in replay mode
+- validate that replay playback still completes normally
