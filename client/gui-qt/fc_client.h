@@ -66,6 +66,7 @@ class MainWindow;
 class pregame_options;
 class QApplication;
 class QDialog;
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QMainWindow;
@@ -77,6 +78,7 @@ class QString;
 class QTableWidget;
 class QTextEdit;
 class QTimer;
+class QToolButton;
 class QTreeWidget;
 struct fc_shortcut;
 
@@ -214,6 +216,11 @@ class fc_client : public QMainWindow,
 
   QStatusBar *status_bar;
   QLabel *status_bar_label;
+  QWidget *replay_controls;
+  QLabel *replay_status_label;
+  QToolButton *replay_play_pause;
+  QToolButton *replay_step_button;
+  QComboBox *replay_speed_combo;
   info_tile *info_tile_wdg;
   choice_dialog *opened_dialog;
   fc_sidewidget *sw_map;
@@ -337,6 +344,7 @@ private:
   void update_server_list(enum server_scan_type sstype,
                           const struct server_list *list);
   bool check_server_scan(server_scan *scan_data);
+  void update_replay_controls();
   void update_load_page(void);
   void create_cursors(void);
   void delete_cursors(void);

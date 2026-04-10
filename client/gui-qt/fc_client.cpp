@@ -19,6 +19,7 @@
 #include <QApplication>
 #include <QComboBox>
 #include <QFormLayout>
+#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPainter>
@@ -35,6 +36,7 @@
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextEdit>
+#include <QToolButton>
 
 // common
 #include "game.h"
@@ -163,6 +165,27 @@ void fc_client::init()
   status_bar_label = new QLabel;
   status_bar_label->setAlignment(Qt::AlignCenter);
   status_bar->addWidget(status_bar_label, 1);
+  replay_controls = new QWidget;
+  replay_status_label = new QLabel(replay_controls);
+  replay_play_pause = new QToolButton(replay_controls);
+  replay_step_button = new QToolButton(replay_controls);
+  replay_speed_combo = new QComboBox(replay_controls);
+  {
+    QHBoxLayout *layout = new QHBoxLayout(replay_controls);
+
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(replay_play_pause);
+    layout->addWidget(replay_step_button);
+    layout->addWidget(replay_speed_combo);
+    layout->addWidget(replay_status_label);
+  }
+  replay_play_pause->setText(_("Pause"));
+  replay_step_button->setText(_("Step"));
+  replay_speed_combo->addItem(_("Slow"), 0);
+  replay_speed_combo->addItem(_("Normal"), 1);
+  replay_speed_combo->addItem(_("Fast"), 2);
+  replay_controls->setVisible(false);
+  status_bar->addPermanentWidget(replay_controls);
   set_status_bar(_("Welcome to Freeciv"));
   create_cursors();
 
@@ -272,6 +295,8 @@ void fc_client::fc_main(QApplication *qapp)
     client_replay_start_requested();
   }
 
+  update_replay_controls();
+
   startTimer(TIMER_INTERVAL);
   connect(quit_shortcut, &QShortcut::activated, this, &fc_client::quit);
   connect(replay_pause_shortcut, &QShortcut::activated, this, []() {
@@ -289,6 +314,17 @@ void fc_client::fc_main(QApplication *qapp)
   connect(replay_fast_shortcut, &QShortcut::activated, this, []() {
     client_replay_set_speed_level(2);
   });
+  connect(replay_play_pause, &QToolButton::clicked, this, []() {
+    client_replay_toggle_pause();
+  });
+  connect(replay_step_button, &QToolButton::clicked, this, []() {
+    client_replay_step_forward();
+  });
+  connect(replay_speed_combo,
+          qOverload<int>(&QComboBox::currentIndexChanged), this,
+          [](int index) {
+            client_replay_set_speed_level(index);
+          });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
   qapp->exec();
 
@@ -546,7 +582,37 @@ void fc_client::timerEvent(QTimerEvent *event)
     interval = real_timer_callback() * 1000;
   }
 
+  update_replay_controls();
+
   startTimer(interval);
+}
+
+/************************************************************************//**
+  Update replay controls shown in the status bar.
+****************************************************************************/
+void fc_client::update_replay_controls()
+{
+  bool replay_mode = client_replay_requested();
+  bool replay_running = client_replay_active();
+
+  replay_controls->setVisible(replay_mode);
+
+  if (!replay_mode) {
+    return;
+  }
+
+  replay_play_pause->setEnabled(replay_running);
+  replay_play_pause->setText(client_replay_paused() ? _("Play") : _("Pause"));
+  replay_step_button->setEnabled(replay_running);
+
+  replay_speed_combo->blockSignals(true);
+  replay_speed_combo->setCurrentIndex(client_replay_speed_level());
+  replay_speed_combo->blockSignals(false);
+  replay_speed_combo->setEnabled(replay_running);
+
+  replay_status_label->setText(QString(_("Turn %1  Year %2"))
+                               .arg(game.info.turn)
+                               .arg(game.info.year));
 }
 
 /************************************************************************//**
@@ -578,6 +644,10 @@ void fc_client::slot_disconnect()
 ****************************************************************************/
 void fc_client::slot_pregame_observe()
 {
+  if (client_replay_mode()) {
+    return;
+  }
+
   if (client_is_observer() || client_is_global_observer()) {
     if (game.info.is_new_game) {
       send_chat("/take -");
@@ -596,6 +666,10 @@ void fc_client::slot_pregame_observe()
 ****************************************************************************/
 void fc_client::slot_pregame_start()
 {
+  if (client_replay_mode()) {
+    return;
+  }
+
   if (can_client_control()) {
     dsend_packet_player_ready(&client.conn,
                               player_number(client_player()),

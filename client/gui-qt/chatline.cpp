@@ -38,6 +38,7 @@
 #include "connectdlg_common.h"
 #include "control.h"
 #include "game.h"
+#include "replay.h"
 
 // gui-qt
 #include "chatline.h"
@@ -110,6 +111,10 @@ void chat_listener::send_chat_message(const QString &message)
 {
   int index;
   QString splayer, s;
+
+  if (client_replay_mode()) {
+    return;
+  }
 
   /* FIXME
    * Key == PICK: used for picking nation, it was put here cause those

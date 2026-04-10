@@ -23,6 +23,7 @@
 
 /* client */
 #include "client_main.h"
+#include "update_queue.h"
 
 #include "replay.h"
 
@@ -462,6 +463,11 @@ bool client_replay_requested(void)
   return replay.path != NULL;
 }
 
+bool client_replay_mode(void)
+{
+  return replay.path != NULL;
+}
+
 bool client_replay_active(void)
 {
   return replay.active;
@@ -481,6 +487,11 @@ int client_replay_timer_interval_ms(void)
   }
 
   return intervals[replay.speed];
+}
+
+int client_replay_speed_level(void)
+{
+  return replay.speed;
 }
 
 bool client_replay_step(void)
@@ -525,6 +536,7 @@ bool client_replay_start_requested(void)
   }
 
   set_client_state(C_S_PREPARING);
+  set_client_page(PAGE_GAME + 1);
 
   while (strcmp(replay.current_chunk, "SNAP") == 0 && replay_step_frame()) {
     /* Step snapshot frames through the normal client packet pipeline. */

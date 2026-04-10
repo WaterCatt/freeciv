@@ -15,11 +15,13 @@ void client_replay_toggle_pause(void);
 void client_replay_step_forward(void);
 void client_replay_set_speed_level(int level);
 bool client_replay_requested(void);
+bool client_replay_mode(void);
 bool client_replay_start_requested(void);
 bool client_replay_active(void);
 bool client_replay_paused(void);
 bool client_replay_step(void);
 int client_replay_timer_interval_ms(void);
+int client_replay_speed_level(void);
 
 #ifdef __cplusplus
 }
