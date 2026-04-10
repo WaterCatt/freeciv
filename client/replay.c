@@ -32,9 +32,13 @@ struct client_replay {
   char *capability;
   struct connection conn;
   bool active;
+  bool paused;
+  bool start_paused;
   bool conn_init;
   uint32_t current_chunk_remaining;
   char current_chunk[5];
+  int speed;
+  int startup_steps;
   int snapshot_frames;
   int event_frames;
 };
@@ -42,6 +46,18 @@ struct client_replay {
 static struct client_replay replay;
 
 static void replay_close(void);
+
+static const char *replay_speed_name(int speed)
+{
+  switch (speed) {
+  case 0:
+    return "slow";
+  case 2:
+    return "fast";
+  default:
+    return "normal";
+  }
+}
 
 static void replay_finish(void)
 {
@@ -303,6 +319,9 @@ static void replay_close(void)
   replay.capability = NULL;
   replay.current_chunk_remaining = 0;
   replay.current_chunk[0] = '\0';
+  replay.paused = FALSE;
+  replay.speed = 1;
+  replay.startup_steps = 0;
 }
 
 static bool replay_open_and_parse(void)
@@ -371,6 +390,73 @@ void client_replay_set_file(char *filename)
   replay.path = filename;
 }
 
+void client_replay_set_start_paused(bool paused)
+{
+  replay.start_paused = paused;
+}
+
+void client_replay_set_startup_steps(int steps)
+{
+  replay.startup_steps = MAX(0, steps);
+}
+
+bool client_replay_set_speed_name(const char *name)
+{
+  if (!fc_strcasecmp(name, "slow")) {
+    replay.speed = 0;
+  } else if (!fc_strcasecmp(name, "normal")) {
+    replay.speed = 1;
+  } else if (!fc_strcasecmp(name, "fast")) {
+    replay.speed = 2;
+  } else {
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
+void client_replay_set_speed_level(int level)
+{
+  if (level < 0 || level > 2) {
+    return;
+  }
+
+  replay.speed = level;
+
+  if (replay.active) {
+    log_normal("Replay speed set to %s.", replay_speed_name(replay.speed));
+  }
+}
+
+void client_replay_toggle_pause(void)
+{
+  if (!replay.active) {
+    return;
+  }
+
+  replay.paused = !replay.paused;
+  log_normal("Replay %s.", replay.paused ? "paused" : "resumed");
+}
+
+void client_replay_step_forward(void)
+{
+  if (!replay.active) {
+    return;
+  }
+
+  if (!replay.paused) {
+    replay.paused = TRUE;
+    log_normal("Replay paused for single-step.");
+  }
+
+  if (!client_replay_step()) {
+    return;
+  }
+
+  log_normal("Replay stepped to turn %d, year %d.",
+             game.info.turn, game.info.year);
+}
+
 bool client_replay_requested(void)
 {
   return replay.path != NULL;
@@ -381,10 +467,30 @@ bool client_replay_active(void)
   return replay.active;
 }
 
+bool client_replay_paused(void)
+{
+  return replay.paused;
+}
+
+int client_replay_timer_interval_ms(void)
+{
+  static const int intervals[] = { 250, 50, 5 };
+
+  if (replay.paused) {
+    return 50;
+  }
+
+  return intervals[replay.speed];
+}
+
 bool client_replay_step(void)
 {
   if (!replay.active) {
     return FALSE;
+  }
+
+  if (replay.paused) {
+    return TRUE;
   }
 
   if (!replay_step_frame()) {
@@ -426,8 +532,29 @@ bool client_replay_start_requested(void)
 
   if (strcmp(replay.current_chunk, "EVNT") == 0) {
     replay.active = TRUE;
+    replay.paused = replay.start_paused;
     log_normal("Replay snapshot loaded at turn %d, year %d (%d snapshot frames).",
                game.info.turn, game.info.year, replay.snapshot_frames);
+
+    {
+      int stepped = 0;
+
+      while (replay.active && replay.startup_steps > 0) {
+        replay.paused = FALSE;
+        if (!client_replay_step()) {
+          break;
+        }
+        replay.startup_steps--;
+        stepped++;
+      }
+
+      if (stepped > 0) {
+        log_normal("Replay applied %d startup step(s); now at turn %d, year %d.",
+                   stepped, game.info.turn, game.info.year);
+      }
+    }
+
+    replay.paused = replay.start_paused;
   } else {
     replay_finish();
   }

@@ -253,6 +253,11 @@ fc_client::~fc_client()
 void fc_client::fc_main(QApplication *qapp)
 {
   QShortcut *quit_shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q), this);
+  QShortcut *replay_pause_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+  QShortcut *replay_step_shortcut = new QShortcut(QKeySequence(Qt::Key_Period), this);
+  QShortcut *replay_slow_shortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
+  QShortcut *replay_normal_shortcut = new QShortcut(QKeySequence(Qt::Key_2), this);
+  QShortcut *replay_fast_shortcut = new QShortcut(QKeySequence(Qt::Key_3), this);
 
   qRegisterMetaType<QTextCursor>("QTextCursor");
   qRegisterMetaType<QTextBlock>("QTextBlock");
@@ -269,6 +274,21 @@ void fc_client::fc_main(QApplication *qapp)
 
   startTimer(TIMER_INTERVAL);
   connect(quit_shortcut, &QShortcut::activated, this, &fc_client::quit);
+  connect(replay_pause_shortcut, &QShortcut::activated, this, []() {
+    client_replay_toggle_pause();
+  });
+  connect(replay_step_shortcut, &QShortcut::activated, this, []() {
+    client_replay_step_forward();
+  });
+  connect(replay_slow_shortcut, &QShortcut::activated, this, []() {
+    client_replay_set_speed_level(0);
+  });
+  connect(replay_normal_shortcut, &QShortcut::activated, this, []() {
+    client_replay_set_speed_level(1);
+  });
+  connect(replay_fast_shortcut, &QShortcut::activated, this, []() {
+    client_replay_set_speed_level(2);
+  });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
   qapp->exec();
 
@@ -518,7 +538,8 @@ void fc_client::timerEvent(QTimerEvent *event)
 
   if (client_replay_active()) {
     client_replay_step();
-    interval = client_replay_active() ? 1 : TIMER_INTERVAL;
+    interval = client_replay_active() ? client_replay_timer_interval_ms()
+                                      : TIMER_INTERVAL;
   } else {
     // Call timer callback in client common code and
     // start new timer with correct interval

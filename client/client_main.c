@@ -464,6 +464,12 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
                    _("Read startup script FILE (for spawned server only)"));
       cmdhelp_add(help, "", "replay FILE",
                   _("Load replay file FILE"));
+      cmdhelp_add(help, "", "replay-paused",
+                  _("Start replay in paused state"));
+      cmdhelp_add(help, "", "replay-step COUNT",
+                  _("Apply COUNT replay event frames after loading snapshot"));
+      cmdhelp_add(help, "", "replay-speed LEVEL",
+                  _("Set replay speed LEVEL (slow/normal/fast)"));
       cmdhelp_add(help, "s",
                   /* TRANS: "server" is exactly what user must type, do not translate. */
                   _("server HOST"),
@@ -517,6 +523,27 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
       scriptfile = option;
     } else if ((option = get_option_malloc("--replay", argv, &i, argc, TRUE))) {
       client_replay_set_file(option);
+    } else if (is_option("--replay-paused", argv[i])) {
+      client_replay_set_start_paused(TRUE);
+    } else if ((option = get_option_malloc("--replay-step", argv, &i, argc, TRUE))) {
+      int steps;
+
+      if (!str_to_int(option, &steps) || steps < 0) {
+        fc_fprintf(stderr,
+                   _("Invalid replay step count \"%s\". Use a non-negative integer.\n"),
+                   option);
+        exit(EXIT_FAILURE);
+      }
+      client_replay_set_startup_steps(steps);
+      free(option);
+    } else if ((option = get_option_malloc("--replay-speed", argv, &i, argc, TRUE))) {
+      if (!client_replay_set_speed_name(option)) {
+        fc_fprintf(stderr,
+                   _("Invalid replay speed \"%s\". Use slow, normal, or fast.\n"),
+                   option);
+        exit(EXIT_FAILURE);
+      }
+      free(option);
     } else if ((option = get_option_malloc("--file", argv, &i, argc, TRUE))) {
       savefile = option;
       auto_spawn = TRUE;
