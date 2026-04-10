@@ -31,6 +31,7 @@ struct client_replay {
   char *path;
   char *capability;
   struct connection conn;
+  bool active;
   bool conn_init;
   uint32_t current_chunk_remaining;
   char current_chunk[5];
@@ -39,6 +40,18 @@ struct client_replay {
 };
 
 static struct client_replay replay;
+
+static void replay_close(void);
+
+static void replay_finish(void)
+{
+  log_normal("Replay playback finished at turn %d, year %d (%d snapshot frames, %d event frames).",
+             game.info.turn, game.info.year,
+             replay.snapshot_frames, replay.event_frames);
+
+  replay.active = FALSE;
+  replay_close();
+}
 
 static bool replay_read_bytes(void *dst, size_t size)
 {
@@ -287,6 +300,9 @@ static void replay_close(void)
   }
 
   FC_FREE(replay.capability);
+  replay.capability = NULL;
+  replay.current_chunk_remaining = 0;
+  replay.current_chunk[0] = '\0';
 }
 
 static bool replay_open_and_parse(void)
@@ -360,6 +376,25 @@ bool client_replay_requested(void)
   return replay.path != NULL;
 }
 
+bool client_replay_active(void)
+{
+  return replay.active;
+}
+
+bool client_replay_step(void)
+{
+  if (!replay.active) {
+    return FALSE;
+  }
+
+  if (!replay_step_frame()) {
+    replay_finish();
+    return FALSE;
+  }
+
+  return TRUE;
+}
+
 bool client_replay_start_requested(void)
 {
   if (!client_replay_requested()) {
@@ -389,13 +424,14 @@ bool client_replay_start_requested(void)
     /* Step snapshot frames through the normal client packet pipeline. */
   }
 
-  while (strcmp(replay.current_chunk, "EVNT") == 0 && replay_step_frame()) {
-    /* Step event frames through the normal client packet pipeline. */
+  if (strcmp(replay.current_chunk, "EVNT") == 0) {
+    replay.active = TRUE;
+    log_normal("Replay snapshot loaded at turn %d, year %d (%d snapshot frames).",
+               game.info.turn, game.info.year, replay.snapshot_frames);
+  } else {
+    replay_finish();
   }
 
-  log_normal("Loaded replay '%s' (%d snapshot frames, %d event frames).",
-             replay.path, replay.snapshot_frames, replay.event_frames);
-
-  replay_close();
+  log_normal("Loaded replay '%s'.", replay.path);
   return TRUE;
 }

@@ -10,6 +10,8 @@ extern "C" {
 void client_replay_set_file(char *filename);
 bool client_replay_requested(void);
 bool client_replay_start_requested(void);
+bool client_replay_active(void);
+bool client_replay_step(void);
 
 #ifdef __cplusplus
 }

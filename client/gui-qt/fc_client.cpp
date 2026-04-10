@@ -511,12 +511,21 @@ void fc_client::server_input(int sock)
 ****************************************************************************/
 void fc_client::timerEvent(QTimerEvent *event)
 {
+  int interval;
+
   // Prevent current timer from repeating with possibly wrong interval
   killTimer(event->timerId());
 
-  // Call timer callback in client common code and
-  // start new timer with correct interval
-  startTimer(real_timer_callback() * 1000);
+  if (client_replay_active()) {
+    client_replay_step();
+    interval = client_replay_active() ? 1 : TIMER_INTERVAL;
+  } else {
+    // Call timer callback in client common code and
+    // start new timer with correct interval
+    interval = real_timer_callback() * 1000;
+  }
+
+  startTimer(interval);
 }
 
 /************************************************************************//**
