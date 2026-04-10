@@ -37,7 +37,7 @@ Implement a system for:
 ### Configure
 
 ```bash
-meson setup buildDir -Daudio=none -Dclients=qt -Dfcmp=qt -Dnls=false
+meson setup buildDir -Daudio=none -Dclients=qt -Dfcmp=qt -Dnls=false -Dreplay-recorder=true
 ```
 
 ### Build
