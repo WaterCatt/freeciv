@@ -28,6 +28,8 @@ struct packet_server_join_req;
 void conn_set_access(struct connection *pconn, enum cmdlevel new_level,
                      bool granted);
 
+void send_established_connection_bootstrap(struct connection *pconn);
+
 void establish_new_connection(struct connection *pconn);
 void reject_new_connection(const char *msg, struct connection *pconn);
 

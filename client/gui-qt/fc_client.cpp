@@ -41,6 +41,7 @@
 
 // client
 #include "connectdlg_common.h"
+#include "replay.h"
 
 // gui-qt
 #include "fc_client.h"
@@ -261,6 +262,10 @@ void fc_client::fc_main(QApplication *qapp)
   chat_welcome_message(true);
 
   set_client_state(C_S_DISCONNECTED);
+
+  if (client_replay_requested()) {
+    client_replay_start_requested();
+  }
 
   startTimer(TIMER_INTERVAL);
   connect(quit_shortcut, &QShortcut::activated, this, &fc_client::quit);

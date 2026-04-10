@@ -3540,12 +3540,9 @@ static void srv_ready(void)
 
   if (replay_recorder_start()) {
     replay_recorder_begin_snapshot();
-    send_rulesets(replay_recorder_dest());
-    send_server_settings(replay_recorder_dest());
-    send_scenario_info(replay_recorder_dest());
-    send_scenario_description(replay_recorder_dest());
-    send_game_info(replay_recorder_dest());
+    send_established_connection_bootstrap(replay_recorder_connection());
     send_all_info(replay_recorder_dest());
+    conn_compression_thaw(replay_recorder_connection());
     replay_recorder_end_snapshot();
   }
 

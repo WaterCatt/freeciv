@@ -90,6 +90,7 @@
 #include "options.h"
 #include "overview_common.h"
 #include "packhand.h"
+#include "replay.h"
 #include "svgflag.h"
 #include "tilespec.h"
 #include "themes_common.h"
@@ -458,9 +459,11 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
                   _("Use PLUGIN for sound output %s"),
                   audio_get_all_plugin_names());
       cmdhelp_add(help, "r",
-                  /* TRANS: "read" is exactly what user must type, do not translate. */
-                  _("read FILE"),
-                  _("Read startup script FILE (for spawned server only)"));
+                   /* TRANS: "read" is exactly what user must type, do not translate. */
+                   _("read FILE"),
+                   _("Read startup script FILE (for spawned server only)"));
+      cmdhelp_add(help, "", "replay FILE",
+                  _("Load replay file FILE"));
       cmdhelp_add(help, "s",
                   /* TRANS: "server" is exactly what user must type, do not translate. */
                   _("server HOST"),
@@ -512,6 +515,8 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
 #endif /* FREECIV_NDEBUG */
     } else  if ((option = get_option_malloc("--read", argv, &i, argc, TRUE))) {
       scriptfile = option;
+    } else if ((option = get_option_malloc("--replay", argv, &i, argc, TRUE))) {
+      client_replay_set_file(option);
     } else if ((option = get_option_malloc("--file", argv, &i, argc, TRUE))) {
       savefile = option;
       auto_spawn = TRUE;
@@ -585,6 +590,11 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
     /* TRANS: don't translate option names */
     fc_fprintf(stderr, _("-f/--file and -a/--autoconnect options are "
                          "incompatible\n"));
+    exit(EXIT_FAILURE);
+  }
+
+  if (client_replay_requested() && (auto_spawn || auto_connect)) {
+    fc_fprintf(stderr, _("--replay is incompatible with --file and --autoconnect\n"));
     exit(EXIT_FAILURE);
   }
 

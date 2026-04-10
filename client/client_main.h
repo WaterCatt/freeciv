@@ -128,6 +128,9 @@ void fc__noreturn client_exit(int return_value);
 bool is_client_quitting(void);
 void start_quitting(void);
 
+bool client_replay_requested(void);
+bool client_replay_start_requested(void);
+
 /* Set in GUI code. */
 extern const char * const gui_character_encoding;
 extern const bool gui_use_transliteration;

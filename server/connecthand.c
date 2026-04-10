@@ -62,6 +62,26 @@ static bool connection_attach_real(struct connection *pconn,
                                    bool observing, bool connecting);
 
 /**********************************************************************//**
+  Send the initial established-connection bootstrap packet sequence.
+**************************************************************************/
+void send_established_connection_bootstrap(struct connection *pconn)
+{
+  struct conn_list *dest = pconn->self;
+  struct packet_set_topology topo_packet;
+
+  conn_compression_freeze(pconn);
+  send_rulesets(dest);
+  send_server_setting_control(pconn);
+  send_server_settings(dest);
+  send_scenario_info(dest);
+  send_scenario_description(dest);
+  send_game_info(dest);
+  topo_packet.topology_id = wld.map.topology_id;
+  topo_packet.wrap_id = wld.map.wrap_id;
+  send_packet_set_topology(pconn, &topo_packet);
+}
+
+/**********************************************************************//**
   Set the access level of a connection, and re-send some needed info.  If
   granted is TRUE, then it will overwrite the granted_access_level too.
   Else, it will affect only the current access level.
@@ -135,7 +155,6 @@ void establish_new_connection(struct connection *pconn)
   struct packet_chat_msg connect_info;
   char hostname[512];
   bool delegation_error = FALSE;
-  struct packet_set_topology topo_packet;
 
   /* Zero out the password */
   memset(pconn->server.password, 0, sizeof(pconn->server.password));
@@ -187,16 +206,7 @@ void establish_new_connection(struct connection *pconn)
     script_fcdb_call("conn_established", pconn);
   }
 
-  conn_compression_freeze(pconn);
-  send_rulesets(dest);
-  send_server_setting_control(pconn);
-  send_server_settings(dest);
-  send_scenario_info(dest);
-  send_scenario_description(dest);
-  send_game_info(dest);
-  topo_packet.topology_id = wld.map.topology_id;
-  topo_packet.wrap_id = wld.map.wrap_id;
-  send_packet_set_topology(pconn, &topo_packet);
+  send_established_connection_bootstrap(pconn);
 
   /* Do we have a player that a delegate is currently controlling? */
   if ((pplayer = player_by_user_delegated(pconn->username))) {
