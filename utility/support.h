@@ -174,6 +174,10 @@ FILE *fc_fopen(const char *filename, const char *opentype);
 #ifdef FREECIV_HAVE_LIBZ
 #include <zlib.h>
 gzFile fc_gzopen(const char *filename, const char *opentype);
+int fc_gzread(gzFile file, voidp buf, unsigned len);
+int fc_gzwrite(gzFile file, voidpc buf, unsigned len);
+int fc_gzclose(gzFile file);
+const char *fc_gzerror(gzFile file, int *errnum);
 #endif
 int fc_remove(const char *filename);
 int fc_stat(const char *filename, struct stat *buf);

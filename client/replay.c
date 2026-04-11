@@ -7,6 +7,9 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#ifdef FREECIV_HAVE_LIBZ
+#include <zlib.h>
+#endif
 
 /* utility */
 #include "fcintl.h"
@@ -28,7 +31,9 @@
 #include "replay.h"
 
 struct client_replay {
-  FILE *file;
+  unsigned char *data;
+  size_t data_len;
+  size_t data_pos;
   char *path;
   char *capability;
   struct connection conn;
@@ -50,6 +55,7 @@ static struct client_replay replay;
 
 static void replay_close(void);
 static bool replay_load_from_path(void);
+static bool replay_load_bytes(void);
 static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
@@ -92,7 +98,13 @@ static bool replay_advance_frame(void)
 
 static bool replay_read_bytes(void *dst, size_t size)
 {
-  return fread(dst, 1, size, replay.file) == size;
+  if (replay.data_pos + size > replay.data_len) {
+    return FALSE;
+  }
+
+  memcpy(dst, replay.data + replay.data_pos, size);
+  replay.data_pos += size;
+  return TRUE;
 }
 
 static bool replay_read_u16(uint16_t *value)
@@ -158,7 +170,12 @@ static bool replay_read_string(char **value)
 
 static bool replay_skip_bytes(uint32_t size)
 {
-  return fseek(replay.file, size, SEEK_CUR) == 0;
+  if (replay.data_pos + size > replay.data_len) {
+    return FALSE;
+  }
+
+  replay.data_pos += size;
+  return TRUE;
 }
 
 static bool replay_read_chunk_header(void)
@@ -324,7 +341,7 @@ static bool replay_step_frame(void)
 
 static bool replay_scan_totals(void)
 {
-  long saved_offset = ftell(replay.file);
+  size_t saved_offset = replay.data_pos;
   uint32_t saved_remaining = replay.current_chunk_remaining;
   char saved_chunk[5];
 
@@ -361,21 +378,141 @@ static bool replay_scan_totals(void)
     }
   }
 
-  if (fseek(replay.file, saved_offset, SEEK_SET) != 0) {
-    return FALSE;
-  }
-
+  replay.data_pos = saved_offset;
   replay.current_chunk_remaining = saved_remaining;
   sz_strlcpy(replay.current_chunk, saved_chunk);
   return TRUE;
 
 fail:
-  if (saved_offset >= 0) {
-    fseek(replay.file, saved_offset, SEEK_SET);
-  }
+  replay.data_pos = saved_offset;
   replay.current_chunk_remaining = saved_remaining;
   sz_strlcpy(replay.current_chunk, saved_chunk);
   return FALSE;
+}
+
+static bool replay_append_loaded_bytes(unsigned char **buffer, size_t *used,
+                                       size_t *capacity,
+                                       const unsigned char *src, size_t len)
+{
+  size_t needed = *used + len;
+
+  if (needed > *capacity) {
+    size_t new_capacity = MAX(needed, *capacity * 2 + 8192);
+
+    *buffer = fc_realloc(*buffer, new_capacity);
+    *capacity = new_capacity;
+  }
+
+  memcpy(*buffer + *used, src, len);
+  *used += len;
+  return TRUE;
+}
+
+static bool replay_load_plain_bytes(void)
+{
+  FILE *file;
+  unsigned char buffer[8192];
+  unsigned char *data = NULL;
+  size_t used = 0;
+  size_t capacity = 0;
+
+  file = fc_fopen(replay.path, "rb");
+  if (file == NULL) {
+    log_error("Failed opening replay '%s': %s", replay.path, strerror(errno));
+    return FALSE;
+  }
+
+  while (!feof(file)) {
+    size_t nread = fread(buffer, 1, sizeof(buffer), file);
+
+    if (nread > 0) {
+      replay_append_loaded_bytes(&data, &used, &capacity, buffer, nread);
+    }
+
+    if (ferror(file)) {
+      log_error("Failed reading replay '%s': %s", replay.path, strerror(errno));
+      free(data);
+      fclose(file);
+      return FALSE;
+    }
+  }
+
+  fclose(file);
+  replay.data = data;
+  replay.data_len = used;
+  replay.data_pos = 0;
+  return TRUE;
+}
+
+#ifdef FREECIV_HAVE_LIBZ
+static bool replay_load_gzip_bytes(void)
+{
+  gzFile file;
+  unsigned char buffer[8192];
+  unsigned char *data = NULL;
+  size_t used = 0;
+  size_t capacity = 0;
+
+  file = fc_gzopen(replay.path, "rb");
+  if (file == NULL) {
+    log_error("Failed opening compressed replay '%s'.", replay.path);
+    return FALSE;
+  }
+
+  while (TRUE) {
+    int nread = fc_gzread(file, buffer, sizeof(buffer));
+
+    if (nread > 0) {
+      replay_append_loaded_bytes(&data, &used, &capacity, buffer, nread);
+      continue;
+    }
+
+    if (nread < 0) {
+      int errnum;
+      const char *errmsg = fc_gzerror(file, &errnum);
+
+      if (errnum != Z_OK && errnum != Z_STREAM_END) {
+        log_error("Failed reading compressed replay '%s': %s",
+                  replay.path, errmsg);
+        free(data);
+        fc_gzclose(file);
+        return FALSE;
+      }
+    }
+
+    break;
+  }
+
+  fc_gzclose(file);
+  replay.data = data;
+  replay.data_len = used;
+  replay.data_pos = 0;
+  return TRUE;
+}
+#endif /* FREECIV_HAVE_LIBZ */
+
+static bool replay_load_bytes(void)
+{
+  FILE *probe;
+  unsigned char magic[2];
+  size_t got;
+
+  probe = fc_fopen(replay.path, "rb");
+  if (probe == NULL) {
+    log_error("Failed opening replay '%s': %s", replay.path, strerror(errno));
+    return FALSE;
+  }
+
+  got = fread(magic, 1, sizeof(magic), probe);
+  fclose(probe);
+
+#ifdef FREECIV_HAVE_LIBZ
+  if (got == sizeof(magic) && magic[0] == 0x1f && magic[1] == 0x8b) {
+    return replay_load_gzip_bytes();
+  }
+#endif /* FREECIV_HAVE_LIBZ */
+
+  return replay_load_plain_bytes();
 }
 
 static void replay_close(void)
@@ -387,10 +524,10 @@ static void replay_close(void)
     replay.conn_init = FALSE;
   }
 
-  if (replay.file != NULL) {
-    fclose(replay.file);
-    replay.file = NULL;
-  }
+  FC_FREE(replay.data);
+  replay.data = NULL;
+  replay.data_len = 0;
+  replay.data_pos = 0;
 
   FC_FREE(replay.capability);
   replay.capability = NULL;
@@ -417,9 +554,7 @@ static bool replay_open_and_parse(void)
   replay.event_frames = 0;
   replay.total_event_frames = 0;
 
-  replay.file = fopen(replay.path, "rb");
-  if (replay.file == NULL) {
-    log_error("Failed opening replay '%s': %s", replay.path, strerror(errno));
+  if (!replay_load_bytes()) {
     return FALSE;
   }
 

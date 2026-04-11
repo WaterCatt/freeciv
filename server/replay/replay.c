@@ -14,6 +14,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#ifdef FREECIV_HAVE_LIBZ
+#include <zlib.h>
+#endif
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
 #endif
@@ -51,6 +54,8 @@ struct replay_recorder_state {
   bool active;
   enum replay_chunk_phase phase;
   FILE *file;
+  char *path;
+  char *tmp_path;
   struct connection *conn;
   int peer_fd;
   long chunk_size_offset;
@@ -64,6 +69,7 @@ static struct replay_recorder_state replay_state = {
 };
 
 static void replay_recorder_flush_peer(void);
+static bool replay_compress_file(void);
 
 static void replay_notify_writable(struct connection *pc,
                                    bool data_available_and_socket_full)
@@ -169,6 +175,79 @@ static void replay_queue_pending(const unsigned char *data, size_t len)
 static bool replay_write_packet_record(const unsigned char *packet, size_t len)
 {
   return replay_write_u32(len) && replay_write_bytes(packet, len);
+}
+
+static bool replay_compress_file(void)
+{
+  bool ok = TRUE;
+
+  if (replay_state.tmp_path == NULL || replay_state.path == NULL) {
+    return FALSE;
+  }
+
+#ifdef FREECIV_HAVE_LIBZ
+  {
+    FILE *src = fc_fopen(replay_state.tmp_path, "rb");
+    gzFile dst;
+    unsigned char buf[8192];
+
+    if (src == NULL) {
+      log_error("Replay recorder failed opening temporary file '%s': %s",
+                replay_state.tmp_path, strerror(errno));
+      return FALSE;
+    }
+
+    dst = fc_gzopen(replay_state.path, "wb6");
+    if (dst == NULL) {
+      log_error("Replay recorder failed creating compressed replay '%s'.",
+                replay_state.path);
+      fclose(src);
+      return FALSE;
+    }
+
+    while (!feof(src)) {
+      size_t nread = fread(buf, 1, sizeof(buf), src);
+
+      if (nread > 0 && fc_gzwrite(dst, buf, nread) != (int) nread) {
+        log_error("Replay recorder failed writing compressed replay '%s'.",
+                  replay_state.path);
+        ok = FALSE;
+        break;
+      }
+
+      if (ferror(src)) {
+        log_error("Replay recorder failed reading temporary replay '%s'.",
+                  replay_state.tmp_path);
+        ok = FALSE;
+        break;
+      }
+    }
+
+    fclose(src);
+    if (fc_gzclose(dst) != Z_OK) {
+      log_error("Replay recorder failed finalizing compressed replay '%s'.",
+                replay_state.path);
+      ok = FALSE;
+    }
+  }
+#else  /* FREECIV_HAVE_LIBZ */
+  if (rename(replay_state.tmp_path, replay_state.path) != 0) {
+    log_error("Replay recorder failed renaming '%s' to '%s': %s",
+              replay_state.tmp_path, replay_state.path, strerror(errno));
+    ok = FALSE;
+  }
+#endif /* FREECIV_HAVE_LIBZ */
+
+  if (ok) {
+    if (fc_remove(replay_state.tmp_path) != 0 && errno != ENOENT) {
+      log_error("Replay recorder failed removing temporary replay '%s': %s",
+                replay_state.tmp_path, strerror(errno));
+    }
+  } else {
+    fc_remove(replay_state.path);
+  }
+
+  return ok;
 }
 
 static void replay_drain_pending_packets(void)
@@ -300,6 +379,7 @@ bool replay_recorder_start(void)
 {
   int fds[2];
   char filename[128];
+  char tmp_filename[160];
   time_t now;
   struct tm *tm_now;
   struct packet_server_join_reply join_reply = {
@@ -317,10 +397,17 @@ bool replay_recorder_start(void)
   }
 
   strftime(filename, sizeof(filename), "replay-%Y%m%d-%H%M%S.fcreplay", tm_now);
+  fc_snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);
 
-  replay_state.file = fopen(filename, "wb+");
+  FC_FREE(replay_state.path);
+  FC_FREE(replay_state.tmp_path);
+  replay_state.path = fc_strdup(filename);
+  replay_state.tmp_path = fc_strdup(tmp_filename);
+
+  replay_state.file = fc_fopen(replay_state.tmp_path, "wb+");
   if (replay_state.file == nullptr) {
-    log_error("Replay recorder failed opening '%s': %s", filename, strerror(errno));
+    log_error("Replay recorder failed opening '%s': %s",
+              replay_state.tmp_path, strerror(errno));
     return FALSE;
   }
 
@@ -328,6 +415,8 @@ bool replay_recorder_start(void)
     log_error("Replay recorder failed creating socketpair: %s", strerror(errno));
     fclose(replay_state.file);
     replay_state.file = nullptr;
+    FC_FREE(replay_state.path);
+    FC_FREE(replay_state.tmp_path);
     return FALSE;
   }
 
@@ -375,7 +464,7 @@ bool replay_recorder_start(void)
   }
 
   replay_finish_chunk();
-  log_normal("Replay recorder writing to %s", filename);
+  log_normal("Replay recorder writing to %s", replay_state.path);
 
   return TRUE;
 }
@@ -415,6 +504,8 @@ void replay_recorder_end_snapshot(void)
 
 void replay_recorder_stop(void)
 {
+  bool finalize = replay_state.active;
+
   if (replay_state.file != nullptr) {
     replay_recorder_flush_peer();
 
@@ -431,6 +522,11 @@ void replay_recorder_stop(void)
     replay_state.file = nullptr;
   }
 
+  if (finalize && !replay_compress_file()) {
+    log_error("Replay recorder failed to finalize compressed replay '%s'.",
+              replay_state.path != NULL ? replay_state.path : "(unknown)");
+  }
+
   replay_close_connection();
 
   FC_FREE(replay_state.pending);
@@ -439,6 +535,8 @@ void replay_recorder_stop(void)
   replay_state.pending_cap = 0;
   replay_state.phase = REPLAY_PHASE_NONE;
   replay_state.active = FALSE;
+  FC_FREE(replay_state.path);
+  FC_FREE(replay_state.tmp_path);
 }
 
 #else  /* FREECIV_REPLAY_RECORDER */

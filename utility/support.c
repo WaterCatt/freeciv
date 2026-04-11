@@ -546,6 +546,26 @@ gzFile fc_gzopen(const char *filename, const char *opentype)
   return gzopen(filename, opentype);
 #endif /* FREECIV_MSWINDOWS */
 }
+
+int fc_gzread(gzFile file, voidp buf, unsigned len)
+{
+  return gzread(file, buf, len);
+}
+
+int fc_gzwrite(gzFile file, voidpc buf, unsigned len)
+{
+  return gzwrite(file, buf, len);
+}
+
+int fc_gzclose(gzFile file)
+{
+  return gzclose(file);
+}
+
+const char *fc_gzerror(gzFile file, int *errnum)
+{
+  return gzerror(file, errnum);
+}
 #endif /* FREECIV_HAVE_LIBZ */
 
 /************************************************************************//**
