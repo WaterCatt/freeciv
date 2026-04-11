@@ -27,6 +27,7 @@
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QHeaderView>
+#include <QHBoxLayout>
 #include <QLineEdit>
 #include <QLocale>
 #include <QMessageBox>
@@ -102,16 +103,23 @@ public:
 private:
   void refresh();
   void update_open_button();
+  void update_preview();
   QStringList replay_directories() const;
+  QPixmap make_preview_placeholder(const QString &title,
+                                   const QString &subtitle) const;
 
   QTableWidget *table;
   QPushButton *open_button;
+  QLabel *preview_pixmap;
+  QLabel *preview_details;
 };
 
 replay_browser_dialog::replay_browser_dialog(QWidget *parent)
-  : QDialog(parent), table(new QTableWidget(this)), open_button(nullptr)
+  : QDialog(parent), table(new QTableWidget(this)), open_button(nullptr),
+    preview_pixmap(new QLabel(this)), preview_details(new QLabel(this))
 {
   QVBoxLayout *layout = new QVBoxLayout(this);
+  QHBoxLayout *content_layout = new QHBoxLayout();
   QDialogButtonBox *buttons;
   QPushButton *refresh_button;
 
@@ -138,7 +146,26 @@ replay_browser_dialog::replay_browser_dialog(QWidget *parent)
   table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
   table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
   table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
-  layout->addWidget(table);
+
+  preview_pixmap->setAlignment(Qt::AlignCenter);
+  preview_pixmap->setProperty("themed_border", true);
+  preview_pixmap->setMinimumSize(220, 220);
+  preview_pixmap->setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Minimum);
+
+  preview_details->setWordWrap(true);
+  preview_details->setTextFormat(Qt::RichText);
+  preview_details->setMinimumWidth(220);
+  preview_details->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+
+  {
+    QVBoxLayout *preview_layout = new QVBoxLayout();
+
+    preview_layout->addWidget(preview_pixmap, 0, Qt::AlignTop);
+    preview_layout->addWidget(preview_details, 1);
+    content_layout->addWidget(table, 1);
+    content_layout->addLayout(preview_layout);
+  }
+  layout->addLayout(content_layout);
 
   buttons = new QDialogButtonBox(this);
   refresh_button = buttons->addButton(_("Refresh"), QDialogButtonBox::ActionRole);
@@ -153,6 +180,7 @@ replay_browser_dialog::replay_browser_dialog(QWidget *parent)
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
   connect(table, &QTableWidget::itemSelectionChanged, this, [this]() {
     update_open_button();
+    update_preview();
   });
   connect(table, &QTableWidget::itemDoubleClicked, this, [this]() {
     if (table->currentRow() >= 0) {
@@ -161,6 +189,39 @@ replay_browser_dialog::replay_browser_dialog(QWidget *parent)
   });
 
   refresh();
+}
+
+QPixmap replay_browser_dialog::make_preview_placeholder(const QString &title,
+                                                        const QString &subtitle) const
+{
+  QPixmap pixmap(220, 220);
+  QPainter painter(&pixmap);
+  QRect title_rect(16, 24, pixmap.width() - 32, 72);
+  QRect subtitle_rect(16, 120, pixmap.width() - 32, 72);
+  QFont title_font = painter.font();
+  QFont subtitle_font = painter.font();
+
+  pixmap.fill(QColor(24, 30, 42));
+  painter.fillRect(QRect(18, 18, 184, 184), QColor(40, 94, 64));
+  painter.fillRect(QRect(28, 34, 44, 34), QColor(72, 127, 88));
+  painter.fillRect(QRect(92, 52, 76, 44), QColor(87, 143, 100));
+  painter.fillRect(QRect(48, 104, 58, 62), QColor(56, 82, 146));
+  painter.fillRect(QRect(120, 122, 54, 28), QColor(56, 82, 146));
+  painter.setPen(QPen(QColor(180, 196, 214), 2));
+  painter.drawRect(QRect(18, 18, 184, 184));
+
+  title_font.setBold(true);
+  title_font.setPointSize(title_font.pointSize() + 2);
+  painter.setFont(title_font);
+  painter.setPen(Qt::white);
+  painter.drawText(title_rect, Qt::AlignHCenter | Qt::TextWordWrap, title);
+
+  subtitle_font.setPointSize(MAX(8, subtitle_font.pointSize() - 1));
+  painter.setFont(subtitle_font);
+  painter.setPen(QColor(221, 227, 234));
+  painter.drawText(subtitle_rect, Qt::AlignHCenter | Qt::TextWordWrap, subtitle);
+
+  return pixmap;
 }
 
 QStringList replay_browser_dialog::replay_directories() const
@@ -238,11 +299,59 @@ void replay_browser_dialog::refresh()
     table->selectRow(0);
   }
   update_open_button();
+  update_preview();
 }
 
 void replay_browser_dialog::update_open_button()
 {
   open_button->setEnabled(table->currentRow() >= 0);
+}
+
+void replay_browser_dialog::update_preview()
+{
+  QTableWidgetItem *item = table->item(table->currentRow(), 0);
+  QString path;
+  QFileInfo file_info;
+  struct client_replay_info info;
+
+  if (item == nullptr) {
+    preview_pixmap->setPixmap(make_preview_placeholder(_("No Replay Selected"),
+                                                       _("Select a replay to view details.")));
+    preview_details->setText(_("Choose a replay from the list."));
+    return;
+  }
+
+  path = item->data(Qt::UserRole).toString();
+  file_info.setFile(path);
+  memset(&info, 0, sizeof(info));
+
+  if (client_replay_read_info(qUtf8Printable(path), &info) && info.valid) {
+    preview_pixmap->setPixmap(make_preview_placeholder(
+      _("Initial Map Preview"),
+      _("Replay SNAP minimap rendering is not wired into the browser yet.")));
+    preview_details->setText(QString(_("<b>File:</b> %1<br>"
+                                       "<b>Modified:</b> %2<br>"
+                                       "<b>Size:</b> %3 bytes<br>"
+                                       "<b>Ruleset:</b> %4<br>"
+                                       "<b>Scenario:</b> %5<br>"
+                                       "<b>Start:</b> Turn %6 / Year %7<br><br>"
+                                       "This preview is a browser placeholder based on replay metadata."
+                                       ))
+                            .arg(file_info.fileName().toHtmlEscaped())
+                            .arg(QLocale::system().toString(file_info.lastModified(),
+                                                           QLocale::ShortFormat).toHtmlEscaped())
+                            .arg(QString::number(file_info.size()).toHtmlEscaped())
+                            .arg(QString::fromUtf8(info.ruleset).toHtmlEscaped())
+                            .arg(QString::fromUtf8(info.scenario).toHtmlEscaped())
+                            .arg(info.start_turn)
+                            .arg(info.start_year));
+  } else {
+    preview_pixmap->setPixmap(make_preview_placeholder(_("Invalid Replay"),
+                                                       _("The selected file could not be parsed.")));
+    preview_details->setText(QString(_("<b>File:</b> %1<br><br>"
+                                       "Replay metadata could not be read safely."))
+                            .arg(file_info.fileName().toHtmlEscaped()));
+  }
 }
 
 QString replay_browser_dialog::selected_file() const
