@@ -24,6 +24,8 @@ bool client_replay_paused(void);
 bool client_replay_step(void);
 int client_replay_timer_interval_ms(void);
 int client_replay_speed_level(void);
+int client_replay_position(void);
+int client_replay_length(void);
 
 #ifdef __cplusplus
 }

@@ -70,6 +70,7 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QMainWindow;
+class QProgressBar;
 class QSocketNotifier;
 class QSpinBox;
 class QStackedLayout;
@@ -222,6 +223,8 @@ class fc_client : public QMainWindow,
   QToolButton *replay_step_backward_button;
   QToolButton *replay_step_forward_button;
   QComboBox *replay_speed_combo;
+  QProgressBar *replay_progress_bar;
+  QLabel *replay_progress_label;
   info_tile *info_tile_wdg;
   choice_dialog *opened_dialog;
   fc_sidewidget *sw_map;

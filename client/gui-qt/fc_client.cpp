@@ -23,6 +23,7 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QPainter>
+#include <QProgressBar>
 #include <QResizeEvent>
 #include <QScrollBar>
 #include <QSettings>
@@ -171,6 +172,8 @@ void fc_client::init()
   replay_step_backward_button = new QToolButton(replay_controls);
   replay_step_forward_button = new QToolButton(replay_controls);
   replay_speed_combo = new QComboBox(replay_controls);
+  replay_progress_bar = new QProgressBar(replay_controls);
+  replay_progress_label = new QLabel(replay_controls);
   {
     QHBoxLayout *layout = new QHBoxLayout(replay_controls);
 
@@ -179,6 +182,8 @@ void fc_client::init()
     layout->addWidget(replay_step_backward_button);
     layout->addWidget(replay_step_forward_button);
     layout->addWidget(replay_speed_combo);
+    layout->addWidget(replay_progress_bar);
+    layout->addWidget(replay_progress_label);
     layout->addWidget(replay_status_label);
   }
   replay_play_pause->setText(_("Pause"));
@@ -187,6 +192,8 @@ void fc_client::init()
   replay_speed_combo->addItem(_("Slow"), 0);
   replay_speed_combo->addItem(_("Normal"), 1);
   replay_speed_combo->addItem(_("Fast"), 2);
+  replay_progress_bar->setMinimumWidth(180);
+  replay_progress_bar->setTextVisible(false);
   replay_controls->setVisible(false);
   status_bar->addPermanentWidget(replay_controls);
   set_status_bar(_("Welcome to Freeciv"));
@@ -621,9 +628,16 @@ void fc_client::update_replay_controls()
   replay_speed_combo->blockSignals(false);
   replay_speed_combo->setEnabled(replay_running);
 
+  replay_progress_bar->setRange(0, MAX(1, client_replay_length()));
+  replay_progress_bar->setValue(MIN(client_replay_position(),
+                                    replay_progress_bar->maximum()));
+  replay_progress_label->setText(QString(_("%1 / %2 frames"))
+                                 .arg(client_replay_position())
+                                 .arg(client_replay_length()));
+
   replay_status_label->setText(QString(_("Turn %1  Year %2"))
-                               .arg(game.info.turn)
-                               .arg(game.info.year));
+                                .arg(game.info.turn)
+                                .arg(game.info.year));
 }
 
 /************************************************************************//**

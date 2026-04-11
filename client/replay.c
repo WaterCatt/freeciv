@@ -43,12 +43,14 @@ struct client_replay {
   int initial_turn;
   int snapshot_frames;
   int event_frames;
+  int total_event_frames;
 };
 
 static struct client_replay replay;
 
 static void replay_close(void);
 static bool replay_load_from_path(void);
+static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
 
@@ -320,6 +322,62 @@ static bool replay_step_frame(void)
   return TRUE;
 }
 
+static bool replay_scan_totals(void)
+{
+  long saved_offset = ftell(replay.file);
+  uint32_t saved_remaining = replay.current_chunk_remaining;
+  char saved_chunk[5];
+
+  sz_strlcpy(saved_chunk, replay.current_chunk);
+  replay.total_event_frames = 0;
+
+  while (TRUE) {
+    while (replay.current_chunk_remaining > 0) {
+      uint32_t frame_len;
+
+      if (replay.current_chunk_remaining < 4 || !replay_read_u32(&frame_len)) {
+        goto fail;
+      }
+
+      replay.current_chunk_remaining -= 4;
+
+      if (frame_len > replay.current_chunk_remaining
+          || !replay_skip_bytes(frame_len)) {
+        goto fail;
+      }
+
+      replay.current_chunk_remaining -= frame_len;
+
+      if (strcmp(replay.current_chunk, "EVNT") == 0) {
+        replay.total_event_frames++;
+      }
+    }
+
+    if (!replay_prepare_next_chunk()) {
+      if (strcmp(replay.current_chunk, "DONE") != 0) {
+        goto fail;
+      }
+      break;
+    }
+  }
+
+  if (fseek(replay.file, saved_offset, SEEK_SET) != 0) {
+    return FALSE;
+  }
+
+  replay.current_chunk_remaining = saved_remaining;
+  sz_strlcpy(replay.current_chunk, saved_chunk);
+  return TRUE;
+
+fail:
+  if (saved_offset >= 0) {
+    fseek(replay.file, saved_offset, SEEK_SET);
+  }
+  replay.current_chunk_remaining = saved_remaining;
+  sz_strlcpy(replay.current_chunk, saved_chunk);
+  return FALSE;
+}
+
 static void replay_close(void)
 {
   if (replay.conn_init) {
@@ -342,6 +400,7 @@ static void replay_close(void)
   replay.speed = 1;
   replay.startup_steps = 0;
   replay.initial_turn = 0;
+  replay.total_event_frames = 0;
 }
 
 static bool replay_open_and_parse(void)
@@ -352,6 +411,11 @@ static bool replay_open_and_parse(void)
   struct packet_server_join_reply join_reply = {
     .you_can_join = TRUE
   };
+
+  replay.initial_turn = 0;
+  replay.snapshot_frames = 0;
+  replay.event_frames = 0;
+  replay.total_event_frames = 0;
 
   replay.file = fopen(replay.path, "rb");
   if (replay.file == NULL) {
@@ -384,6 +448,12 @@ static bool replay_open_and_parse(void)
 
   if (!replay_prepare_next_chunk() || strcmp(replay.current_chunk, "SNAP") != 0) {
     log_error("Replay '%s' is missing a SNAP chunk.", replay.path);
+    replay_close();
+    return FALSE;
+  }
+
+  if (!replay_scan_totals()) {
+    log_error("Replay '%s' totals scan failed.", replay.path);
     replay_close();
     return FALSE;
   }
@@ -641,6 +711,16 @@ int client_replay_timer_interval_ms(void)
 int client_replay_speed_level(void)
 {
   return replay.speed;
+}
+
+int client_replay_position(void)
+{
+  return replay.event_frames;
+}
+
+int client_replay_length(void)
+{
+  return replay.total_event_frames;
 }
 
 bool client_replay_step(void)
