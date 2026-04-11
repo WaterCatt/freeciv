@@ -391,6 +391,14 @@ void client_replay_set_file(char *filename)
   replay.path = filename;
 }
 
+void client_replay_stop_mode(void)
+{
+  replay.active = FALSE;
+  replay_close();
+  FC_FREE(replay.path);
+  replay.path = NULL;
+}
+
 void client_replay_set_start_paused(bool paused)
 {
   replay.start_paused = paused;
@@ -529,6 +537,7 @@ bool client_replay_start_requested(void)
 
   client.conn.established = TRUE;
   client.conn.observer = TRUE;
+  client.conn.id = -1;
   client.conn.playing = NULL;
   client.conn.access_level = ALLOW_INFO;
   if (replay.capability != NULL) {
@@ -536,11 +545,18 @@ bool client_replay_start_requested(void)
   }
 
   set_client_state(C_S_PREPARING);
+  client.conn.established = TRUE;
+  client.conn.observer = TRUE;
+  client.conn.id = -1;
+  client.conn.playing = NULL;
+  client.conn.access_level = ALLOW_INFO;
   set_client_page(PAGE_GAME + 1);
 
   while (strcmp(replay.current_chunk, "SNAP") == 0 && replay_step_frame()) {
     /* Step snapshot frames through the normal client packet pipeline. */
   }
+
+  set_client_page(PAGE_GAME);
 
   if (strcmp(replay.current_chunk, "EVNT") == 0) {
     replay.active = TRUE;

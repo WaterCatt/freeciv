@@ -42,6 +42,7 @@
 #include "connectdlg_common.h"
 #include "control.h"
 #include "helpdata.h"
+#include "replay.h"
 
 // gui-qt
 #include "fc_client.h"
@@ -3925,14 +3926,24 @@ void mr_menu::back_to_menu()
     ask->setAttribute(Qt::WA_DeleteOnClose);
 
     connect(ask, &hud_message_box::accepted, [=]() {
-      if (client.conn.used) {
+      if (client_replay_mode()) {
+        client_replay_stop_mode();
+        set_client_state(C_S_DISCONNECTED);
+        set_client_page(PAGE_MAIN);
+      } else if (client.conn.used) {
         gui()->infotab->msgwdg->clr();
         disconnect_from_server(TRUE);
       }
     });
     ask->show();
   } else {
-    disconnect_from_server(TRUE);
+    if (client_replay_mode()) {
+      client_replay_stop_mode();
+      set_client_state(C_S_DISCONNECTED);
+      set_client_page(PAGE_MAIN);
+    } else {
+      disconnect_from_server(TRUE);
+    }
   }
 }
 

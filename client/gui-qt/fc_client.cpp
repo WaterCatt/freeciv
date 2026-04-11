@@ -435,7 +435,7 @@ void fc_client::switch_page(int new_pg)
     // For MS Windows, it might ignore first
     showMaximized();
     gui()->infotab->chtwdg->update_widgets();
-    status_bar->setVisible(false);
+    status_bar->setVisible(client_replay_mode());
 
     if (gui_options.gui_qt_fullscreen) {
       apply_fullscreen();
@@ -632,6 +632,13 @@ void fc_client::quit()
 ****************************************************************************/
 void fc_client::slot_disconnect()
 {
+  if (client_replay_mode()) {
+    client_replay_stop_mode();
+    set_client_state(C_S_DISCONNECTED);
+    switch_page(PAGE_MAIN);
+    return;
+  }
+
   if (client.conn.used) {
     disconnect_from_server(TRUE);
   }
