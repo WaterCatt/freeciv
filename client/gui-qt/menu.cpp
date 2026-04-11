@@ -18,6 +18,7 @@
 // Qt
 #include <QActionGroup>
 #include <QApplication>
+#include <QDir>
 #include <QFileDialog>
 #include <QMainWindow>
 #include <QMessageBox>
@@ -26,6 +27,7 @@
 #include <QVBoxLayout>
 
 // utility
+#include "mem.h"
 #include "string_vector.h"
 
 // common
@@ -1008,6 +1010,9 @@ void mr_menu::setup_menus()
   act->setCheckable(true);
   act->setChecked(gui_options.save_options_on_exit);
   main_menu->addSeparator();
+  act = main_menu->addAction(_("Open Replay..."));
+  act->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+  connect(act, &QAction::triggered, this, &mr_menu::open_replay);
   act = main_menu->addAction(_("Save Game"));
   act->setShortcut(QKeySequence(tr("Ctrl+s")));
   act->setIcon(style()->standardIcon(QStyle::SP_DialogSaveButton));
@@ -3874,6 +3879,14 @@ void mr_menu::save_image()
     saved->set_text_title(_("Failed to save image of the map"), _("Error"));
   }
   saved->show();
+}
+
+/**********************************************************************//**
+  Open replay from file picker.
+**************************************************************************/
+void mr_menu::open_replay()
+{
+  gui()->browse_replays();
 }
 
 /**********************************************************************//**

@@ -20,10 +20,16 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QLineEdit>
+#include <QLocale>
+#include <QMessageBox>
 #include <QPainter>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -39,7 +45,11 @@
 // client
 #include "client_main.h"
 #include "connectdlg_common.h"
+#include "replay.h"
 #include "svgflag.h"
+
+// utility
+#include "mem.h"
 
 // gui-qt
 #include "colors.h"
@@ -79,6 +89,174 @@ static enum connection_state connection_status;
 static struct terrain *char2terrain(char ch);
 static void cycle_enemy_units();
 int last_center_enemy = 0;
+
+namespace {
+
+class replay_browser_dialog : public QDialog
+{
+public:
+  explicit replay_browser_dialog(QWidget *parent);
+
+  QString selected_file() const;
+
+private:
+  void refresh();
+  void update_open_button();
+  QStringList replay_directories() const;
+
+  QTableWidget *table;
+  QPushButton *open_button;
+};
+
+replay_browser_dialog::replay_browser_dialog(QWidget *parent)
+  : QDialog(parent), table(new QTableWidget(this)), open_button(nullptr)
+{
+  QVBoxLayout *layout = new QVBoxLayout(this);
+  QDialogButtonBox *buttons;
+  QPushButton *refresh_button;
+
+  setWindowTitle(_("Replay Browser"));
+  resize(860, 420);
+
+  table->setColumnCount(6);
+  table->setHorizontalHeaderLabels(QStringList()
+                                   << _("File")
+                                   << _("Modified")
+                                   << _("Size")
+                                   << _("Ruleset")
+                                   << _("Scenario")
+                                   << _("Start"));
+  table->setSelectionBehavior(QAbstractItemView::SelectRows);
+  table->setSelectionMode(QAbstractItemView::SingleSelection);
+  table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  table->setSortingEnabled(false);
+  table->verticalHeader()->setVisible(false);
+  table->horizontalHeader()->setStretchLastSection(false);
+  table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+  table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setSectionResizeMode(4, QHeaderView::ResizeToContents);
+  table->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+  layout->addWidget(table);
+
+  buttons = new QDialogButtonBox(this);
+  refresh_button = buttons->addButton(_("Refresh"), QDialogButtonBox::ActionRole);
+  open_button = buttons->addButton(_("Open"), QDialogButtonBox::AcceptRole);
+  buttons->addButton(_("Cancel"), QDialogButtonBox::RejectRole);
+  layout->addWidget(buttons);
+
+  connect(refresh_button, &QPushButton::clicked, this, [this]() {
+    refresh();
+  });
+  connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+  connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+  connect(table, &QTableWidget::itemSelectionChanged, this, [this]() {
+    update_open_button();
+  });
+  connect(table, &QTableWidget::itemDoubleClicked, this, [this]() {
+    if (table->currentRow() >= 0) {
+      accept();
+    }
+  });
+
+  refresh();
+}
+
+QStringList replay_browser_dialog::replay_directories() const
+{
+  QStringList dirs;
+  char *storage_dir = freeciv_storage_dir();
+
+  dirs << QDir::currentPath();
+  if (storage_dir != nullptr && storage_dir[0] != '\0') {
+    QString storage = QString::fromUtf8(storage_dir);
+
+    if (!dirs.contains(storage)) {
+      dirs << storage;
+    }
+  }
+  free_freeciv_storage_dir();
+
+  return dirs;
+}
+
+void replay_browser_dialog::refresh()
+{
+  QStringList seen_paths;
+  int row = 0;
+
+  table->setRowCount(0);
+
+  for (const QString &dir_name : replay_directories()) {
+    QDir dir(dir_name);
+    QFileInfoList files = dir.entryInfoList(QStringList() << "*.fcreplay",
+                                            QDir::Files, QDir::Time);
+
+    for (const QFileInfo &file_info : files) {
+      struct client_replay_info info;
+      QString start_text = "-";
+      QString ruleset = "-";
+      QString scenario = "-";
+      QString modified = QLocale::system().toString(file_info.lastModified(),
+                                                    QLocale::ShortFormat);
+      QString size = QString::number(file_info.size());
+      QString absolute = file_info.absoluteFilePath();
+      QTableWidgetItem *item;
+
+      if (seen_paths.contains(absolute)) {
+        continue;
+      }
+      seen_paths << absolute;
+
+      memset(&info, 0, sizeof(info));
+      if (client_replay_read_info(qUtf8Printable(absolute), &info) && info.valid) {
+        ruleset = QString::fromUtf8(info.ruleset);
+        scenario = QString::fromUtf8(info.scenario);
+        start_text = QString(_("Turn %1 / Year %2"))
+                     .arg(info.start_turn)
+                     .arg(info.start_year);
+      } else {
+        ruleset = _("Invalid replay");
+      }
+
+      table->insertRow(row);
+
+      item = new QTableWidgetItem(file_info.fileName());
+      item->setData(Qt::UserRole, absolute);
+      table->setItem(row, 0, item);
+      table->setItem(row, 1, new QTableWidgetItem(modified));
+      table->setItem(row, 2, new QTableWidgetItem(size));
+      table->setItem(row, 3, new QTableWidgetItem(ruleset));
+      table->setItem(row, 4, new QTableWidgetItem(scenario));
+      table->setItem(row, 5, new QTableWidgetItem(start_text));
+      row++;
+    }
+  }
+
+  if (table->rowCount() > 0) {
+    table->selectRow(0);
+  }
+  update_open_button();
+}
+
+void replay_browser_dialog::update_open_button()
+{
+  open_button->setEnabled(table->currentRow() >= 0);
+}
+
+QString replay_browser_dialog::selected_file() const
+{
+  QTableWidgetItem *item = table->item(table->currentRow(), 0);
+
+  if (item == nullptr) {
+    return QString();
+  }
+
+  return item->data(Qt::UserRole).toString();
+}
+
+} // namespace
 
 /**********************************************************************//**
   Helper function for drawing map of savegames. Converts stored map char in
@@ -258,6 +436,11 @@ void fc_client::create_main_page(void)
       break;
     }
   }
+
+  button = new QPushButton(_("Open Replay..."));
+  button->setToolTip(_("Opens a recorded replay file for playback."));
+  pages_layout[PAGE_MAIN]->addWidget(button, row + 4, 0, 1, 2);
+  connect(button, &QAbstractButton::clicked, this, &fc_client::browse_replays);
 }
 
 /**********************************************************************//**
@@ -844,6 +1027,37 @@ void fc_client::browse_saves(void)
                                               QDir::homePath(), str);
   if (!current_file.isEmpty()) {
     start_from_save();
+  }
+}
+
+/**********************************************************************//**
+  Browse replay files and start replay playback.
+**************************************************************************/
+void fc_client::browse_replays(void)
+{
+  replay_browser_dialog browser(gui()->central_wdg);
+  QString filename;
+
+  if (client_state() != C_S_DISCONNECTED || client.conn.used) {
+    QMessageBox::warning(gui()->central_wdg, _("Open Replay"),
+                         _("Replay playback can only be started while disconnected."));
+    return;
+  }
+
+  if (browser.exec() != QDialog::Accepted) {
+    return;
+  }
+
+  filename = browser.selected_file();
+  if (filename.isEmpty()) {
+    return;
+  }
+
+  client_replay_set_file(fc_strdup(qUtf8Printable(filename)));
+  if (!client_replay_start_requested()) {
+    client_replay_stop_mode();
+    QMessageBox::warning(gui()->central_wdg, _("Open Replay"),
+                         _("Failed to load replay file."));
   }
 }
 

@@ -51,14 +51,274 @@ struct client_replay {
   int total_event_frames;
 };
 
+struct replay_data_cursor {
+  const unsigned char *data;
+  size_t data_len;
+  size_t data_pos;
+};
+
 static struct client_replay replay;
 
 static void replay_close(void);
 static bool replay_load_from_path(void);
 static bool replay_load_bytes(void);
+static bool replay_append_loaded_bytes(unsigned char **buffer, size_t *used,
+                                       size_t *capacity,
+                                       const unsigned char *src, size_t len);
 static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
+
+static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
+                                     void *dst, size_t size)
+{
+  if (cursor->data_pos + size > cursor->data_len) {
+    return FALSE;
+  }
+
+  memcpy(dst, cursor->data + cursor->data_pos, size);
+  cursor->data_pos += size;
+  return TRUE;
+}
+
+static bool replay_cursor_read_u16(struct replay_data_cursor *cursor,
+                                   uint16_t *value)
+{
+  unsigned char buf[2];
+
+  if (!replay_cursor_read_bytes(cursor, buf, sizeof(buf))) {
+    return FALSE;
+  }
+
+  *value = buf[0] | (buf[1] << 8);
+  return TRUE;
+}
+
+static bool replay_cursor_read_u32(struct replay_data_cursor *cursor,
+                                   uint32_t *value)
+{
+  unsigned char buf[4];
+
+  if (!replay_cursor_read_bytes(cursor, buf, sizeof(buf))) {
+    return FALSE;
+  }
+
+  *value = buf[0] | (buf[1] << 8) | (buf[2] << 16) | ((uint32_t) buf[3] << 24);
+  return TRUE;
+}
+
+static bool replay_cursor_read_u64(struct replay_data_cursor *cursor,
+                                   uint64_t *value)
+{
+  unsigned char buf[8];
+  int i;
+
+  if (!replay_cursor_read_bytes(cursor, buf, sizeof(buf))) {
+    return FALSE;
+  }
+
+  *value = 0;
+  for (i = 0; i < 8; i++) {
+    *value |= ((uint64_t) buf[i]) << (8 * i);
+  }
+
+  return TRUE;
+}
+
+static bool replay_cursor_read_string(struct replay_data_cursor *cursor,
+                                      char **value)
+{
+  uint16_t len;
+
+  *value = NULL;
+  if (!replay_cursor_read_u16(cursor, &len)) {
+    return FALSE;
+  }
+
+  *value = fc_malloc(len + 1);
+  if (len > 0 && !replay_cursor_read_bytes(cursor, *value, len)) {
+    FC_FREE(*value);
+    return FALSE;
+  }
+
+  (*value)[len] = '\0';
+  return TRUE;
+}
+
+static bool replay_load_plain_file_bytes(const char *path,
+                                         unsigned char **data,
+                                         size_t *data_len)
+{
+  FILE *file;
+  unsigned char buffer[8192];
+  unsigned char *loaded = NULL;
+  size_t used = 0;
+  size_t capacity = 0;
+
+  file = fc_fopen(path, "rb");
+  if (file == NULL) {
+    return FALSE;
+  }
+
+  while (!feof(file)) {
+    size_t nread = fread(buffer, 1, sizeof(buffer), file);
+
+    if (nread > 0) {
+      replay_append_loaded_bytes(&loaded, &used, &capacity, buffer, nread);
+    }
+
+    if (ferror(file)) {
+      FC_FREE(loaded);
+      fclose(file);
+      return FALSE;
+    }
+  }
+
+  fclose(file);
+  *data = loaded;
+  *data_len = used;
+  return TRUE;
+}
+
+#ifdef FREECIV_HAVE_LIBZ
+static bool replay_load_gzip_file_bytes(const char *path,
+                                        unsigned char **data,
+                                        size_t *data_len)
+{
+  gzFile file;
+  unsigned char buffer[8192];
+  unsigned char *loaded = NULL;
+  size_t used = 0;
+  size_t capacity = 0;
+
+  file = fc_gzopen(path, "rb");
+  if (file == NULL) {
+    return FALSE;
+  }
+
+  while (TRUE) {
+    int nread = fc_gzread(file, buffer, sizeof(buffer));
+
+    if (nread > 0) {
+      replay_append_loaded_bytes(&loaded, &used, &capacity, buffer, nread);
+      continue;
+    }
+
+    if (nread < 0) {
+      FC_FREE(loaded);
+      fc_gzclose(file);
+      return FALSE;
+    }
+
+    break;
+  }
+
+  fc_gzclose(file);
+  *data = loaded;
+  *data_len = used;
+  return TRUE;
+}
+#endif /* FREECIV_HAVE_LIBZ */
+
+static bool replay_load_file_bytes(const char *path, unsigned char **data,
+                                   size_t *data_len)
+{
+  FILE *probe;
+  unsigned char magic[2];
+  size_t got;
+
+  *data = NULL;
+  *data_len = 0;
+
+  probe = fc_fopen(path, "rb");
+  if (probe == NULL) {
+    return FALSE;
+  }
+
+  got = fread(magic, 1, sizeof(magic), probe);
+  fclose(probe);
+
+#ifdef FREECIV_HAVE_LIBZ
+  if (got == sizeof(magic) && magic[0] == 0x1f && magic[1] == 0x8b) {
+    return replay_load_gzip_file_bytes(path, data, data_len);
+  }
+#endif /* FREECIV_HAVE_LIBZ */
+
+  return replay_load_plain_file_bytes(path, data, data_len);
+}
+
+static bool replay_parse_info_data(const unsigned char *data, size_t data_len,
+                                   struct client_replay_info *info)
+{
+  struct replay_data_cursor cursor = {
+    .data = data,
+    .data_len = data_len,
+    .data_pos = 0
+  };
+  char magic[8];
+  char chunk_type[5];
+  char *version = NULL;
+  char *capability = NULL;
+  char *ruleset = NULL;
+  char *scenario = NULL;
+  uint16_t format_version;
+  uint16_t flags;
+  uint32_t chunk_size;
+  uint32_t turn;
+  uint32_t year;
+  uint64_t timestamp;
+
+  memset(info, 0, sizeof(*info));
+  sz_strlcpy(info->ruleset, "-");
+  sz_strlcpy(info->scenario, "-");
+
+  if (!replay_cursor_read_bytes(&cursor, magic, sizeof(magic))
+      || memcmp(magic, "FCREPLAY", sizeof(magic)) != 0
+      || !replay_cursor_read_u16(&cursor, &format_version)
+      || !replay_cursor_read_u16(&cursor, &flags)) {
+    return FALSE;
+  }
+
+  if (format_version != 1) {
+    return FALSE;
+  }
+
+  if (!replay_cursor_read_bytes(&cursor, chunk_type, 4)
+      || !replay_cursor_read_u32(&cursor, &chunk_size)) {
+    return FALSE;
+  }
+
+  chunk_type[4] = '\0';
+  if (strcmp(chunk_type, "INFO") != 0) {
+    return FALSE;
+  }
+
+  if (!replay_cursor_read_string(&cursor, &version)
+      || !replay_cursor_read_string(&cursor, &capability)
+      || !replay_cursor_read_string(&cursor, &ruleset)
+      || !replay_cursor_read_string(&cursor, &scenario)
+      || !replay_cursor_read_u32(&cursor, &turn)
+      || !replay_cursor_read_u32(&cursor, &year)
+      || !replay_cursor_read_u64(&cursor, &timestamp)) {
+    FC_FREE(version);
+    FC_FREE(capability);
+    FC_FREE(ruleset);
+    FC_FREE(scenario);
+    return FALSE;
+  }
+
+  info->valid = TRUE;
+  sz_strlcpy(info->ruleset, ruleset != NULL && ruleset[0] != '\0' ? ruleset : "-");
+  sz_strlcpy(info->scenario, scenario != NULL && scenario[0] != '\0' ? scenario : "-");
+  info->start_turn = turn;
+  info->start_year = year;
+
+  FC_FREE(version);
+  FC_FREE(capability);
+  FC_FREE(ruleset);
+  FC_FREE(scenario);
+  return TRUE;
+}
 
 static const char *replay_speed_name(int speed)
 {
@@ -655,6 +915,29 @@ static bool replay_load_from_path(void)
 
   log_normal("Loaded replay '%s'.", replay.path);
   return TRUE;
+}
+
+bool client_replay_read_info(const char *filename,
+                             struct client_replay_info *info)
+{
+  unsigned char *data = NULL;
+  size_t data_len = 0;
+  bool ok;
+
+  fc_assert_ret_val(filename != NULL, FALSE);
+  fc_assert_ret_val(info != NULL, FALSE);
+
+  ok = replay_load_file_bytes(filename, &data, &data_len)
+       && replay_parse_info_data(data, data_len, info);
+  FC_FREE(data);
+
+  if (!ok) {
+    memset(info, 0, sizeof(*info));
+    sz_strlcpy(info->ruleset, "-");
+    sz_strlcpy(info->scenario, "-");
+  }
+
+  return ok;
 }
 
 static bool replay_restart_at_turn(int target_turn)

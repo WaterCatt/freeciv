@@ -7,7 +7,19 @@ extern "C" {
 
 #include "support.h"
 
+#define CLIENT_REPLAY_INFO_TEXT_LEN 128
+
+struct client_replay_info {
+  bool valid;
+  char ruleset[CLIENT_REPLAY_INFO_TEXT_LEN];
+  char scenario[CLIENT_REPLAY_INFO_TEXT_LEN];
+  int start_turn;
+  int start_year;
+};
+
 void client_replay_set_file(char *filename);
+bool client_replay_read_info(const char *filename,
+                             struct client_replay_info *info);
 void client_replay_set_start_paused(bool paused);
 void client_replay_set_startup_steps(int steps);
 bool client_replay_set_speed_name(const char *name);

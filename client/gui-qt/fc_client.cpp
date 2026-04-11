@@ -436,6 +436,7 @@ void fc_client::switch_page(int new_pg)
   i_page = new_page;
   switch (i_page) {
   case PAGE_MAIN:
+    menuBar()->setVisible(true);
     break;
   case PAGE_START:
     pre_vote->hide();

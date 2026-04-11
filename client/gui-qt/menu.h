@@ -299,6 +299,7 @@ private slots:
   void server_options();
   void messages_options();
   void save_options_now();
+  void open_replay();
   void save_game();
   void save_game_as();
   void save_image();

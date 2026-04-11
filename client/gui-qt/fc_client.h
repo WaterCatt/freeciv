@@ -323,7 +323,8 @@ private slots:
   void state_preview(Qt::CheckState state);
   void state_preview_depr(int state);
 
-public slots:
+ public slots:
+  void browse_replays();
   void switch_page(int i);
   void popup_client_options();
   void update_info_label();
