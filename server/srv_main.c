@@ -3538,7 +3538,7 @@ static void srv_ready(void)
     log_debug("dbid: %d", game.server.dbid);
   }
 
-  if (replay_recorder_start()) {
+  if (game.server.replay_recording && replay_recorder_start()) {
     replay_recorder_begin_snapshot();
     send_established_connection_bootstrap(replay_recorder_connection());
     send_all_info(replay_recorder_dest());

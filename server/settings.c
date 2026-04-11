@@ -37,6 +37,7 @@
 #include "notify.h"
 #include "plrhand.h"
 #include "report.h"
+#include "replay.h"
 #include "rscompat.h"
 #include "rssanity.h"
 #include "setcompat.h"
@@ -897,6 +898,27 @@ static void aitype_action(const struct setting *pset)
   if (!set_default_ai_type_name(pset->string.value)) {
     log_warn(_("Failed to update default AI type."));
   }
+}
+
+/************************************************************************//**
+  Replay recording can only be enabled when the server was built with
+  recorder support.
+****************************************************************************/
+static bool replayrecording_validate(bool value, struct connection *pconn,
+                                     char *reject_msg,
+                                     size_t reject_msg_len)
+{
+#ifdef FREECIV_REPLAY_RECORDER
+  return TRUE;
+#else  /* FREECIV_REPLAY_RECORDER */
+  if (!value) {
+    return TRUE;
+  }
+
+  settings_snprintf(reject_msg, reject_msg_len,
+                    _("This server was built without replay recorder support."));
+  return FALSE;
+#endif /* FREECIV_REPLAY_RECORDER */
 }
 
 /****************************************************************************
@@ -3190,7 +3212,18 @@ static struct setting settings[] = {
               "file containing the game situation takes place in "
               "the background while game otherwise continues. This way "
               "users are not required to wait for the save to finish."),
-           nullptr, nullptr, GAME_DEFAULT_THREADED_SAVE)
+            nullptr, nullptr, GAME_DEFAULT_THREADED_SAVE)
+
+  GEN_BOOL("replayrecording", game.server.replay_recording,
+           SSET_GAME_INIT, SSET_INTERNAL, SSET_RARE, ALLOW_NONE, ALLOW_HACK,
+           N_("Whether to record the game as a replay"),
+           /* TRANS: The string between single quotes is a setting name and
+            * should not be translated. */
+           N_("If this is turned on before the game starts, the server writes "
+              "a '.fcreplay' file for that game. If this is turned off, normal "
+              "gameplay continues without replay recording. This requires the "
+              "server to be built with replay recorder support."),
+           replayrecording_validate, nullptr, GAME_DEFAULT_REPLAY_RECORDING)
 
   GEN_INT("compress", game.server.save_compress_level,
           SSET_META, SSET_INTERNAL, SSET_RARE, ALLOW_HACK, ALLOW_HACK,

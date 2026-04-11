@@ -185,6 +185,7 @@ struct civ_game {
       int revolution_length;
       int spaceship_travel_pct;
       bool threaded_save;
+      bool replay_recording;
       int save_compress_level;
       enum fz_method save_compress_type;
       int save_nturns;
@@ -696,6 +697,12 @@ static inline bool is_ruleset_compat_mode(void)
 #endif /* FREECIV_WEB */
 
 #define GAME_DEFAULT_THREADED_SAVE   FALSE
+
+#ifdef FREECIV_REPLAY_RECORDER
+#define GAME_DEFAULT_REPLAY_RECORDING TRUE
+#else  /* FREECIV_REPLAY_RECORDER */
+#define GAME_DEFAULT_REPLAY_RECORDING FALSE
+#endif /* FREECIV_REPLAY_RECORDER */
 
 #define GAME_DEFAULT_USER_META_MESSAGE ""
 
