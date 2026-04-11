@@ -219,7 +219,8 @@ class fc_client : public QMainWindow,
   QWidget *replay_controls;
   QLabel *replay_status_label;
   QToolButton *replay_play_pause;
-  QToolButton *replay_step_button;
+  QToolButton *replay_step_backward_button;
+  QToolButton *replay_step_forward_button;
   QComboBox *replay_speed_combo;
   info_tile *info_tile_wdg;
   choice_dialog *opened_dialog;

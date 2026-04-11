@@ -40,6 +40,7 @@ struct client_replay {
   char current_chunk[5];
   int speed;
   int startup_steps;
+  int initial_turn;
   int snapshot_frames;
   int event_frames;
 };
@@ -47,6 +48,9 @@ struct client_replay {
 static struct client_replay replay;
 
 static void replay_close(void);
+static bool replay_load_from_path(void);
+static bool replay_step_frame(void);
+static bool replay_step_turn_forward_internal(void);
 
 static const char *replay_speed_name(int speed)
 {
@@ -68,6 +72,20 @@ static void replay_finish(void)
 
   replay.active = FALSE;
   replay_close();
+}
+
+static bool replay_advance_frame(void)
+{
+  if (!replay.active) {
+    return FALSE;
+  }
+
+  if (!replay_step_frame()) {
+    replay_finish();
+    return FALSE;
+  }
+
+  return TRUE;
 }
 
 static bool replay_read_bytes(void *dst, size_t size)
@@ -323,6 +341,7 @@ static void replay_close(void)
   replay.paused = FALSE;
   replay.speed = 1;
   replay.startup_steps = 0;
+  replay.initial_turn = 0;
 }
 
 static bool replay_open_and_parse(void)
@@ -381,6 +400,86 @@ static bool replay_open_and_parse(void)
 
   conn_set_capability(&replay.conn, replay.capability);
   post_receive_packet_server_join_reply(&replay.conn, &join_reply);
+
+  return TRUE;
+}
+
+static bool replay_load_from_path(void)
+{
+  if (client_state() != C_S_DISCONNECTED) {
+    log_error("Replay playback can only start from disconnected client state.");
+    return FALSE;
+  }
+
+  if (!replay_open_and_parse()) {
+    return FALSE;
+  }
+
+  client.conn.established = TRUE;
+  client.conn.observer = TRUE;
+  client.conn.id = -1;
+  client.conn.playing = NULL;
+  client.conn.access_level = ALLOW_INFO;
+  if (replay.capability != NULL) {
+    sz_strlcpy(client.conn.capability, replay.capability);
+  }
+
+  set_client_state(C_S_PREPARING);
+  client.conn.established = TRUE;
+  client.conn.observer = TRUE;
+  client.conn.id = -1;
+  client.conn.playing = NULL;
+  client.conn.access_level = ALLOW_INFO;
+  set_client_page(PAGE_GAME + 1);
+
+  while (strcmp(replay.current_chunk, "SNAP") == 0 && replay_step_frame()) {
+    /* Step snapshot frames through the normal client packet pipeline. */
+  }
+
+  set_client_page(PAGE_GAME);
+  replay.initial_turn = game.info.turn;
+
+  if (strcmp(replay.current_chunk, "EVNT") == 0) {
+    replay.active = TRUE;
+    replay.paused = replay.start_paused;
+    log_normal("Replay snapshot loaded at turn %d, year %d (%d snapshot frames).",
+               game.info.turn, game.info.year, replay.snapshot_frames);
+  } else {
+    replay_finish();
+  }
+
+  log_normal("Loaded replay '%s'.", replay.path);
+  return TRUE;
+}
+
+static bool replay_restart_at_turn(int target_turn)
+{
+  int speed = replay.speed;
+  bool start_paused = replay.start_paused;
+
+  replay.active = FALSE;
+  replay_close();
+
+  if (client_state() != C_S_DISCONNECTED) {
+    set_client_state(C_S_DISCONNECTED);
+  }
+
+  replay.speed = speed;
+  replay.start_paused = TRUE;
+  if (!replay_load_from_path()) {
+    replay.start_paused = start_paused;
+    return FALSE;
+  }
+
+  replay.speed = speed;
+  replay.start_paused = start_paused;
+  replay.paused = TRUE;
+
+  while (replay.active && game.info.turn < target_turn) {
+    if (!replay_step_turn_forward_internal()) {
+      return FALSE;
+    }
+  }
 
   return TRUE;
 }
@@ -447,6 +546,48 @@ void client_replay_toggle_pause(void)
   log_normal("Replay %s.", replay.paused ? "paused" : "resumed");
 }
 
+static bool replay_step_turn_forward_internal(void)
+{
+  int current_turn;
+
+  if (!replay.active) {
+    return FALSE;
+  }
+
+  current_turn = game.info.turn;
+
+  while (replay.active && game.info.turn == current_turn) {
+    if (!replay_advance_frame()) {
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+
+void client_replay_step_backward(void)
+{
+  int target_turn;
+
+  if (!replay.active) {
+    return;
+  }
+
+  if (!replay.paused) {
+    replay.paused = TRUE;
+    log_normal("Replay paused for single-step.");
+  }
+
+  target_turn = MAX(replay.initial_turn, game.info.turn - 1);
+
+  if (!replay_restart_at_turn(target_turn)) {
+    return;
+  }
+
+  log_normal("Replay stepped backward to turn %d, year %d.",
+             game.info.turn, game.info.year);
+}
+
 void client_replay_step_forward(void)
 {
   if (!replay.active) {
@@ -458,7 +599,7 @@ void client_replay_step_forward(void)
     log_normal("Replay paused for single-step.");
   }
 
-  if (!client_replay_step()) {
+  if (!replay_step_turn_forward_internal()) {
     return;
   }
 
@@ -512,12 +653,7 @@ bool client_replay_step(void)
     return TRUE;
   }
 
-  if (!replay_step_frame()) {
-    replay_finish();
-    return FALSE;
-  }
-
-  return TRUE;
+  return replay_advance_frame();
 }
 
 bool client_replay_start_requested(void)
@@ -526,67 +662,28 @@ bool client_replay_start_requested(void)
     return FALSE;
   }
 
-  if (client_state() != C_S_DISCONNECTED) {
-    log_error("Replay playback can only start from disconnected client state.");
+  if (!replay_load_from_path()) {
     return FALSE;
   }
 
-  if (!replay_open_and_parse()) {
-    return FALSE;
-  }
+  {
+    int stepped = 0;
 
-  client.conn.established = TRUE;
-  client.conn.observer = TRUE;
-  client.conn.id = -1;
-  client.conn.playing = NULL;
-  client.conn.access_level = ALLOW_INFO;
-  if (replay.capability != NULL) {
-    sz_strlcpy(client.conn.capability, replay.capability);
-  }
-
-  set_client_state(C_S_PREPARING);
-  client.conn.established = TRUE;
-  client.conn.observer = TRUE;
-  client.conn.id = -1;
-  client.conn.playing = NULL;
-  client.conn.access_level = ALLOW_INFO;
-  set_client_page(PAGE_GAME + 1);
-
-  while (strcmp(replay.current_chunk, "SNAP") == 0 && replay_step_frame()) {
-    /* Step snapshot frames through the normal client packet pipeline. */
-  }
-
-  set_client_page(PAGE_GAME);
-
-  if (strcmp(replay.current_chunk, "EVNT") == 0) {
-    replay.active = TRUE;
-    replay.paused = replay.start_paused;
-    log_normal("Replay snapshot loaded at turn %d, year %d (%d snapshot frames).",
-               game.info.turn, game.info.year, replay.snapshot_frames);
-
-    {
-      int stepped = 0;
-
-      while (replay.active && replay.startup_steps > 0) {
-        replay.paused = FALSE;
-        if (!client_replay_step()) {
-          break;
-        }
-        replay.startup_steps--;
-        stepped++;
+    while (replay.active && replay.startup_steps > 0) {
+      replay.paused = FALSE;
+      if (!client_replay_step()) {
+        break;
       }
-
-      if (stepped > 0) {
-        log_normal("Replay applied %d startup step(s); now at turn %d, year %d.",
-                   stepped, game.info.turn, game.info.year);
-      }
+      replay.startup_steps--;
+      stepped++;
     }
 
-    replay.paused = replay.start_paused;
-  } else {
-    replay_finish();
+    if (stepped > 0) {
+      log_normal("Replay applied %d startup step(s); now at turn %d, year %d.",
+                 stepped, game.info.turn, game.info.year);
+    }
   }
 
-  log_normal("Loaded replay '%s'.", replay.path);
+  replay.paused = replay.start_paused;
   return TRUE;
 }

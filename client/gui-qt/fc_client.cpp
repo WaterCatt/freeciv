@@ -168,19 +168,22 @@ void fc_client::init()
   replay_controls = new QWidget;
   replay_status_label = new QLabel(replay_controls);
   replay_play_pause = new QToolButton(replay_controls);
-  replay_step_button = new QToolButton(replay_controls);
+  replay_step_backward_button = new QToolButton(replay_controls);
+  replay_step_forward_button = new QToolButton(replay_controls);
   replay_speed_combo = new QComboBox(replay_controls);
   {
     QHBoxLayout *layout = new QHBoxLayout(replay_controls);
 
     layout->setContentsMargins(0, 0, 0, 0);
     layout->addWidget(replay_play_pause);
-    layout->addWidget(replay_step_button);
+    layout->addWidget(replay_step_backward_button);
+    layout->addWidget(replay_step_forward_button);
     layout->addWidget(replay_speed_combo);
     layout->addWidget(replay_status_label);
   }
   replay_play_pause->setText(_("Pause"));
-  replay_step_button->setText(_("Step"));
+  replay_step_backward_button->setText(_("Step -"));
+  replay_step_forward_button->setText(_("Step +"));
   replay_speed_combo->addItem(_("Slow"), 0);
   replay_speed_combo->addItem(_("Normal"), 1);
   replay_speed_combo->addItem(_("Fast"), 2);
@@ -277,6 +280,7 @@ void fc_client::fc_main(QApplication *qapp)
 {
   QShortcut *quit_shortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q), this);
   QShortcut *replay_pause_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
+  QShortcut *replay_step_backward_shortcut = new QShortcut(QKeySequence(Qt::Key_Comma), this);
   QShortcut *replay_step_shortcut = new QShortcut(QKeySequence(Qt::Key_Period), this);
   QShortcut *replay_slow_shortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
   QShortcut *replay_normal_shortcut = new QShortcut(QKeySequence(Qt::Key_2), this);
@@ -302,6 +306,9 @@ void fc_client::fc_main(QApplication *qapp)
   connect(replay_pause_shortcut, &QShortcut::activated, this, []() {
     client_replay_toggle_pause();
   });
+  connect(replay_step_backward_shortcut, &QShortcut::activated, this, []() {
+    client_replay_step_backward();
+  });
   connect(replay_step_shortcut, &QShortcut::activated, this, []() {
     client_replay_step_forward();
   });
@@ -317,7 +324,10 @@ void fc_client::fc_main(QApplication *qapp)
   connect(replay_play_pause, &QToolButton::clicked, this, []() {
     client_replay_toggle_pause();
   });
-  connect(replay_step_button, &QToolButton::clicked, this, []() {
+  connect(replay_step_backward_button, &QToolButton::clicked, this, []() {
+    client_replay_step_backward();
+  });
+  connect(replay_step_forward_button, &QToolButton::clicked, this, []() {
     client_replay_step_forward();
   });
   connect(replay_speed_combo,
@@ -603,7 +613,8 @@ void fc_client::update_replay_controls()
 
   replay_play_pause->setEnabled(replay_running);
   replay_play_pause->setText(client_replay_paused() ? _("Play") : _("Pause"));
-  replay_step_button->setEnabled(replay_running);
+  replay_step_backward_button->setEnabled(replay_running);
+  replay_step_forward_button->setEnabled(replay_running);
 
   replay_speed_combo->blockSignals(true);
   replay_speed_combo->setCurrentIndex(client_replay_speed_level());

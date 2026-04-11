@@ -12,6 +12,7 @@ void client_replay_set_start_paused(bool paused);
 void client_replay_set_startup_steps(int steps);
 bool client_replay_set_speed_name(const char *name);
 void client_replay_toggle_pause(void);
+void client_replay_step_backward(void);
 void client_replay_step_forward(void);
 void client_replay_set_speed_level(int level);
 bool client_replay_requested(void);
