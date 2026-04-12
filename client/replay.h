@@ -52,6 +52,8 @@ bool client_replay_paused(void);
 bool client_replay_step(void);
 void client_replay_seek_position(int position);
 void client_replay_seek_turn(int turn);
+void client_replay_set_pov_player(int player_number);
+int client_replay_pov_player_number(void);
 int client_replay_timer_interval_ms(void);
 int client_replay_speed_level(void);
 int client_replay_initial_turn(void);

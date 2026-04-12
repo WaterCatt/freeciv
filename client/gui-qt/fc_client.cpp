@@ -45,6 +45,7 @@
 
 // client
 #include "connectdlg_common.h"
+#include "overview_common.h"
 #include "replay.h"
 
 // gui-qt
@@ -173,6 +174,7 @@ void fc_client::init()
   replay_step_backward_button = new QToolButton(replay_controls);
   replay_step_forward_button = new QToolButton(replay_controls);
   replay_speed_combo = new QComboBox(replay_controls);
+  replay_pov_combo = new QComboBox(replay_controls);
   replay_timeline_slider = new QSlider(Qt::Horizontal, replay_controls);
   replay_progress_label = new QLabel(replay_controls);
   replay_jump_turn_spin = new QSpinBox(replay_controls);
@@ -194,6 +196,7 @@ void fc_client::init()
     layout->addWidget(replay_play_pause);
     layout->addWidget(replay_step_backward_button);
     layout->addWidget(replay_step_forward_button);
+    layout->addWidget(replay_pov_combo);
     layout->addWidget(replay_speed_combo);
   }
   replay_play_pause->setText(_("Pause"));
@@ -204,6 +207,9 @@ void fc_client::init()
   replay_speed_combo->addItem("2x", 2);
   replay_speed_combo->addItem("4x", 3);
   replay_speed_combo->addItem("8x", 4);
+  replay_pov_combo->setMinimumWidth(150);
+  replay_pov_combo->addItem(_("Full Observer"), -1);
+  replay_pov_combo->setToolTip(_("Replay player point-of-view switching is currently disabled; Full Observer mode remains available."));
   replay_timeline_slider->setMinimumWidth(320);
   replay_jump_turn_spin->setMinimumWidth(72);
   replay_jump_turn_button->setText(_("Jump"));
@@ -365,6 +371,22 @@ void fc_client::fc_main(QApplication *qapp)
           qOverload<int>(&QComboBox::currentIndexChanged), this,
           [](int index) {
             client_replay_set_speed_level(index);
+          });
+  connect(replay_pov_combo,
+          qOverload<int>(&QComboBox::currentIndexChanged), this,
+          [this](int index) {
+            QVariant pov = replay_pov_combo->itemData(index);
+
+            if (!pov.isValid()) {
+              return;
+            }
+
+            client_replay_set_pov_player(pov.toInt());
+            update_map_canvas_visible();
+            refresh_overview_canvas();
+            update_info_label();
+            update_sidebar_tooltips();
+            menu_bar->menus_sensitive();
           });
   connect(replay_timeline_slider, &QSlider::sliderPressed, this, [this]() {
     replay_slider_dragging = true;
@@ -675,6 +697,11 @@ void fc_client::update_replay_controls()
   replay_speed_combo->setCurrentIndex(client_replay_speed_level());
   replay_speed_combo->blockSignals(false);
   replay_speed_combo->setEnabled(replay_running);
+
+  replay_pov_combo->blockSignals(true);
+  replay_pov_combo->setCurrentIndex(0);
+  replay_pov_combo->blockSignals(false);
+  replay_pov_combo->setEnabled(false);
 
   replay_timeline_slider->setEnabled(replay_running);
   replay_timeline_slider->setRange(0, MAX(0, client_replay_length()));

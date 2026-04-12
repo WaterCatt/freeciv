@@ -224,6 +224,7 @@ class fc_client : public QMainWindow,
   QToolButton *replay_step_backward_button;
   QToolButton *replay_step_forward_button;
   QComboBox *replay_speed_combo;
+  QComboBox *replay_pov_combo;
   QSlider *replay_timeline_slider;
   QLabel *replay_progress_label;
   QSpinBox *replay_jump_turn_spin;

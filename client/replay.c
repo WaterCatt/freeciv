@@ -51,6 +51,7 @@ struct client_replay {
   int startup_steps;
   int initial_turn;
   int final_turn;
+  int pov_player_number;
   int snapshot_frames;
   int event_frames;
   int total_event_frames;
@@ -84,6 +85,7 @@ static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
 static bool replay_scan_turn_limits(void);
+static void replay_apply_pov(void);
 static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
                                      void *dst, size_t size);
 static bool replay_cursor_read_u32(struct replay_data_cursor *cursor,
@@ -280,6 +282,24 @@ static bool replay_build_preview_image(const struct replay_preview_state *state,
   preview->width = state->width;
   preview->height = state->height;
   return TRUE;
+}
+
+static void replay_apply_pov(void)
+{
+  if (replay.pov_player_number < 0) {
+    client.conn.playing = NULL;
+    client.conn.observer = TRUE;
+    return;
+  }
+
+  client.conn.playing = player_by_number(replay.pov_player_number);
+  if (client.conn.playing == NULL) {
+    replay.pov_player_number = -1;
+    client.conn.observer = TRUE;
+    return;
+  }
+
+  client.conn.observer = TRUE;
 }
 
 static int replay_speed_numerator(int speed)
@@ -1389,6 +1409,7 @@ static bool replay_load_from_path(void)
 
   set_client_page(PAGE_GAME);
   replay.initial_turn = game.info.turn;
+  replay_apply_pov();
 
   if (strcmp(replay.current_chunk, "EVNT") == 0) {
     replay.active = TRUE;
@@ -1646,6 +1667,7 @@ void client_replay_set_file(char *filename)
 {
   FC_FREE(replay.path);
   replay.path = filename;
+  replay.pov_player_number = -1;
 }
 
 void client_replay_stop_mode(void)
@@ -1654,6 +1676,7 @@ void client_replay_stop_mode(void)
   replay_close();
   FC_FREE(replay.path);
   replay.path = NULL;
+  replay.pov_player_number = -1;
 }
 
 void client_replay_set_start_paused(bool paused)
@@ -1814,6 +1837,23 @@ int client_replay_initial_turn(void)
 int client_replay_final_turn(void)
 {
   return replay.final_turn;
+}
+
+void client_replay_set_pov_player(int player_number)
+{
+  if (player_number >= 0) {
+    log_normal("Replay player POV switching is currently unavailable; using Full Observer mode.");
+    replay.pov_player_number = -1;
+  } else {
+    replay.pov_player_number = -1;
+  }
+
+  replay_apply_pov();
+}
+
+int client_replay_pov_player_number(void)
+{
+  return replay.pov_player_number;
 }
 
 int client_replay_position(void)
