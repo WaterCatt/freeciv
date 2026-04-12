@@ -226,9 +226,9 @@ class fc_client : public QMainWindow,
   QComboBox *replay_speed_combo;
   QSlider *replay_timeline_slider;
   QLabel *replay_progress_label;
-  QLineEdit *replay_jump_turn_edit;
+  QSpinBox *replay_jump_turn_spin;
   QToolButton *replay_jump_turn_button;
-  QLineEdit *replay_turn_delta_edit;
+  QSpinBox *replay_turn_delta_spin;
   QToolButton *replay_turn_delta_button;
   bool replay_slider_dragging;
   info_tile *info_tile_wdg;
