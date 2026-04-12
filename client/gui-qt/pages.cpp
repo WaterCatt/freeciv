@@ -326,16 +326,29 @@ void replay_browser_dialog::update_preview()
   memset(&info, 0, sizeof(info));
 
   if (client_replay_read_info(qUtf8Printable(path), &info) && info.valid) {
-    preview_pixmap->setPixmap(make_preview_placeholder(
-      _("Initial Map Preview"),
-      _("Replay SNAP minimap rendering is not wired into the browser yet.")));
+    struct client_replay_preview preview;
+
+    memset(&preview, 0, sizeof(preview));
+    if (client_replay_read_preview(qUtf8Printable(path), &preview) && preview.valid) {
+      QImage image(preview.rgb, preview.width, preview.height,
+                   preview.width * 3, QImage::Format_RGB888);
+
+      preview_pixmap->setPixmap(QPixmap::fromImage(image.copy())
+                                .scaled(220, 220, Qt::KeepAspectRatio,
+                                        Qt::FastTransformation));
+      client_replay_free_preview(&preview);
+    } else {
+      preview_pixmap->setPixmap(make_preview_placeholder(
+        _("Preview Unavailable"),
+        _("This replay could not be rendered into an initial minimap preview.")));
+    }
+
     preview_details->setText(QString(_("<b>File:</b> %1<br>"
                                        "<b>Modified:</b> %2<br>"
                                        "<b>Size:</b> %3 bytes<br>"
                                        "<b>Ruleset:</b> %4<br>"
                                        "<b>Scenario:</b> %5<br>"
-                                       "<b>Start:</b> Turn %6 / Year %7<br><br>"
-                                       "This preview is a browser placeholder based on replay metadata."
+                                       "<b>Start:</b> Turn %6 / Year %7"
                                        ))
                             .arg(file_info.fileName().toHtmlEscaped())
                             .arg(QLocale::system().toString(file_info.lastModified(),

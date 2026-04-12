@@ -57,6 +57,14 @@ struct replay_data_cursor {
   size_t data_pos;
 };
 
+struct replay_preview_state {
+  int width;
+  int height;
+  int terrain_colors_count;
+  unsigned char *terrain_colors;
+  int *terrain_ids;
+};
+
 static struct client_replay replay;
 
 static void replay_close(void);
@@ -65,9 +73,205 @@ static bool replay_load_bytes(void);
 static bool replay_append_loaded_bytes(unsigned char **buffer, size_t *used,
                                        size_t *capacity,
                                        const unsigned char *src, size_t len);
+static bool replay_buffer_append(struct connection *pconn,
+                                 const unsigned char *data, size_t len);
 static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
+static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
+                                     void *dst, size_t size);
+static bool replay_cursor_read_u32(struct replay_data_cursor *cursor,
+                                   uint32_t *value);
+
+static void replay_preview_state_init(struct replay_preview_state *state)
+{
+  memset(state, 0, sizeof(*state));
+}
+
+static void replay_preview_state_free(struct replay_preview_state *state)
+{
+  FC_FREE(state->terrain_colors);
+  FC_FREE(state->terrain_ids);
+  memset(state, 0, sizeof(*state));
+}
+
+static void client_replay_preview_reset(struct client_replay_preview *preview)
+{
+  if (preview == NULL) {
+    return;
+  }
+
+  FC_FREE(preview->rgb);
+  memset(preview, 0, sizeof(*preview));
+}
+
+static bool replay_preview_ensure_terrain_color(struct replay_preview_state *state,
+                                                int terrain_id)
+{
+  int new_count;
+  unsigned char *new_colors;
+
+  if (terrain_id < 0) {
+    return FALSE;
+  }
+
+  if (terrain_id < state->terrain_colors_count) {
+    return TRUE;
+  }
+
+  new_count = MAX(terrain_id + 1, state->terrain_colors_count * 2 + 8);
+  new_colors = fc_calloc(new_count, 3 * sizeof(*new_colors));
+  if (state->terrain_colors != NULL) {
+    memcpy(new_colors, state->terrain_colors,
+           state->terrain_colors_count * 3 * sizeof(*new_colors));
+    FC_FREE(state->terrain_colors);
+  }
+
+  state->terrain_colors = new_colors;
+  state->terrain_colors_count = new_count;
+  return TRUE;
+}
+
+static bool replay_preview_init_map(struct replay_preview_state *state,
+                                    int width, int height)
+{
+  size_t count;
+
+  if (width <= 0 || height <= 0) {
+    return FALSE;
+  }
+
+  count = (size_t) width * height;
+  FC_FREE(state->terrain_ids);
+  state->terrain_ids = fc_malloc(count * sizeof(*state->terrain_ids));
+  for (size_t i = 0; i < count; i++) {
+    state->terrain_ids[i] = -1;
+  }
+
+  state->width = width;
+  state->height = height;
+  return TRUE;
+}
+
+static bool replay_cursor_read_chunk_header(struct replay_data_cursor *cursor,
+                                            char chunk_type[5],
+                                            uint32_t *chunk_remaining)
+{
+  if (!replay_cursor_read_bytes(cursor, chunk_type, 4)
+      || !replay_cursor_read_u32(cursor, chunk_remaining)) {
+    return FALSE;
+  }
+
+  chunk_type[4] = '\0';
+  return TRUE;
+}
+
+static bool replay_preview_handle_packet(enum packet_type type, void *packet,
+                                         struct replay_preview_state *state)
+{
+  switch (type) {
+  case PACKET_RULESET_TERRAIN:
+    {
+      const struct packet_ruleset_terrain *terrain = packet;
+
+      if (!replay_preview_ensure_terrain_color(state, terrain->id)) {
+        return FALSE;
+      }
+
+      state->terrain_colors[terrain->id * 3 + 0] = terrain->color_red;
+      state->terrain_colors[terrain->id * 3 + 1] = terrain->color_green;
+      state->terrain_colors[terrain->id * 3 + 2] = terrain->color_blue;
+    }
+    break;
+  case PACKET_MAP_INFO:
+    {
+      const struct packet_map_info *map_info = packet;
+
+      if (!replay_preview_init_map(state, map_info->xsize, map_info->ysize)) {
+        return FALSE;
+      }
+    }
+    break;
+  case PACKET_TILE_INFO:
+    {
+      const struct packet_tile_info *tile_info = packet;
+      int tile_index = tile_info->tile;
+
+      if (state->terrain_ids != NULL
+          && tile_index >= 0
+          && tile_index < state->width * state->height) {
+        state->terrain_ids[tile_index] = tile_info->terrain;
+      }
+    }
+    break;
+  default:
+    break;
+  }
+
+  return TRUE;
+}
+
+static bool replay_preview_inject_frame(struct connection *conn,
+                                        const unsigned char *frame,
+                                        uint32_t len,
+                                        struct replay_preview_state *state)
+{
+  if (!replay_buffer_append(conn, frame, len)) {
+    return FALSE;
+  }
+
+  while (conn->used) {
+    enum packet_type type;
+    void *packet = get_packet_from_connection(conn, &type, FALSE);
+
+    if (packet == NULL) {
+      break;
+    }
+
+    if (!replay_preview_handle_packet(type, packet, state)) {
+      packet_destroy(packet, type);
+      return FALSE;
+    }
+
+    packet_destroy(packet, type);
+  }
+
+  return conn->used;
+}
+
+static bool replay_build_preview_image(const struct replay_preview_state *state,
+                                       struct client_replay_preview *preview)
+{
+  size_t pixel_count;
+  size_t idx;
+
+  if (state->width <= 0 || state->height <= 0 || state->terrain_ids == NULL) {
+    return FALSE;
+  }
+
+  pixel_count = (size_t) state->width * state->height;
+  preview->rgb = fc_malloc(pixel_count * 3 * sizeof(*preview->rgb));
+
+  for (idx = 0; idx < pixel_count; idx++) {
+    int terrain_id = state->terrain_ids[idx];
+    unsigned char *pixel = preview->rgb + idx * 3;
+
+    if (terrain_id >= 0 && terrain_id < state->terrain_colors_count) {
+      pixel[0] = state->terrain_colors[terrain_id * 3 + 0];
+      pixel[1] = state->terrain_colors[terrain_id * 3 + 1];
+      pixel[2] = state->terrain_colors[terrain_id * 3 + 2];
+    } else {
+      pixel[0] = 0;
+      pixel[1] = 0;
+      pixel[2] = 0;
+    }
+  }
+
+  preview->valid = TRUE;
+  preview->width = state->width;
+  preview->height = state->height;
+  return TRUE;
+}
 
 static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
                                      void *dst, size_t size)
@@ -938,6 +1142,144 @@ bool client_replay_read_info(const char *filename,
   }
 
   return ok;
+}
+
+bool client_replay_read_preview(const char *filename,
+                                struct client_replay_preview *preview)
+{
+  unsigned char *data = NULL;
+  size_t data_len = 0;
+  struct replay_data_cursor cursor;
+  struct replay_preview_state state;
+  struct connection conn;
+  struct packet_server_join_reply join_reply = {
+    .you_can_join = TRUE
+  };
+  char magic[8];
+  char chunk_type[5];
+  char *version = NULL;
+  char *capability = NULL;
+  char *ruleset = NULL;
+  char *scenario = NULL;
+  uint16_t format_version;
+  uint16_t flags;
+  uint32_t chunk_remaining;
+  uint32_t frame_len;
+  uint32_t turn;
+  uint32_t year;
+  uint64_t timestamp;
+  bool ok = FALSE;
+
+  fc_assert_ret_val(filename != NULL, FALSE);
+  fc_assert_ret_val(preview != NULL, FALSE);
+  client_replay_preview_reset(preview);
+  replay_preview_state_init(&state);
+  memset(&conn, 0, sizeof(conn));
+
+  if (!replay_load_file_bytes(filename, &data, &data_len)) {
+    return FALSE;
+  }
+
+  cursor.data = data;
+  cursor.data_len = data_len;
+  cursor.data_pos = 0;
+
+  if (!replay_cursor_read_bytes(&cursor, magic, sizeof(magic))
+      || memcmp(magic, "FCREPLAY", sizeof(magic)) != 0
+      || !replay_cursor_read_u16(&cursor, &format_version)
+      || !replay_cursor_read_u16(&cursor, &flags)
+      || format_version != 1
+      || !replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)
+      || strcmp(chunk_type, "INFO") != 0
+      || !replay_cursor_read_string(&cursor, &version)
+      || !replay_cursor_read_string(&cursor, &capability)
+      || !replay_cursor_read_string(&cursor, &ruleset)
+      || !replay_cursor_read_string(&cursor, &scenario)
+      || !replay_cursor_read_u32(&cursor, &turn)
+      || !replay_cursor_read_u32(&cursor, &year)
+      || !replay_cursor_read_u64(&cursor, &timestamp)) {
+    goto cleanup;
+  }
+
+  while (cursor.data_pos < cursor.data_len) {
+    if (!replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)) {
+      goto cleanup;
+    }
+
+    if (strcmp(chunk_type, "SNAP") == 0) {
+      break;
+    }
+
+    if (cursor.data_pos + chunk_remaining > cursor.data_len) {
+      goto cleanup;
+    }
+    cursor.data_pos += chunk_remaining;
+  }
+
+  if (strcmp(chunk_type, "SNAP") != 0) {
+    goto cleanup;
+  }
+
+  connection_common_init(&conn);
+  conn.self = conn_list_new();
+  conn_list_append(conn.self, &conn);
+  conn.used = TRUE;
+  conn.established = TRUE;
+  conn.observer = TRUE;
+  conn.access_level = ALLOW_INFO;
+  conn_set_capability(&conn, capability);
+  post_receive_packet_server_join_reply(&conn, &join_reply);
+
+  while (chunk_remaining > 0) {
+    unsigned char *frame;
+
+    if (chunk_remaining < 4 || !replay_cursor_read_u32(&cursor, &frame_len)) {
+      goto cleanup;
+    }
+    chunk_remaining -= 4;
+
+    if (frame_len > chunk_remaining || cursor.data_pos + frame_len > cursor.data_len) {
+      goto cleanup;
+    }
+
+    frame = fc_malloc(frame_len);
+    if (!replay_cursor_read_bytes(&cursor, frame, frame_len)) {
+      FC_FREE(frame);
+      goto cleanup;
+    }
+
+    if (!replay_preview_inject_frame(&conn, frame, frame_len, &state)) {
+      FC_FREE(frame);
+      goto cleanup;
+    }
+
+    FC_FREE(frame);
+    chunk_remaining -= frame_len;
+  }
+
+  ok = replay_build_preview_image(&state, preview);
+
+cleanup:
+  FC_FREE(version);
+  FC_FREE(capability);
+  FC_FREE(ruleset);
+  FC_FREE(scenario);
+  FC_FREE(data);
+  replay_preview_state_free(&state);
+  if (conn.self != NULL) {
+    connection_common_close(&conn);
+    conn_list_destroy(conn.self);
+  }
+  if (!ok) {
+    client_replay_preview_reset(preview);
+  }
+
+  return ok;
+}
+
+void client_replay_free_preview(struct client_replay_preview *preview)
+{
+  client_replay_preview_reset(preview);
 }
 
 static bool replay_restart_at_turn(int target_turn)

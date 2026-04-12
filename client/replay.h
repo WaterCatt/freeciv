@@ -17,9 +17,19 @@ struct client_replay_info {
   int start_year;
 };
 
+struct client_replay_preview {
+  bool valid;
+  int width;
+  int height;
+  unsigned char *rgb;
+};
+
 void client_replay_set_file(char *filename);
 bool client_replay_read_info(const char *filename,
                              struct client_replay_info *info);
+bool client_replay_read_preview(const char *filename,
+                                struct client_replay_preview *preview);
+void client_replay_free_preview(struct client_replay_preview *preview);
 void client_replay_set_start_paused(bool paused);
 void client_replay_set_startup_steps(int steps);
 bool client_replay_set_speed_name(const char *name);
