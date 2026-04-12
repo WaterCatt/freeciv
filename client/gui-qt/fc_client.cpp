@@ -175,6 +175,10 @@ void fc_client::init()
   replay_speed_combo = new QComboBox(replay_controls);
   replay_timeline_slider = new QSlider(Qt::Horizontal, replay_controls);
   replay_progress_label = new QLabel(replay_controls);
+  replay_jump_turn_edit = new QLineEdit(replay_controls);
+  replay_jump_turn_button = new QToolButton(replay_controls);
+  replay_turn_delta_edit = new QLineEdit(replay_controls);
+  replay_turn_delta_button = new QToolButton(replay_controls);
   replay_slider_dragging = false;
   {
     QHBoxLayout *layout = new QHBoxLayout(replay_controls);
@@ -183,6 +187,10 @@ void fc_client::init()
     layout->addWidget(replay_timeline_slider, 1);
     layout->addWidget(replay_progress_label);
     layout->addWidget(replay_status_label);
+    layout->addWidget(replay_jump_turn_edit);
+    layout->addWidget(replay_jump_turn_button);
+    layout->addWidget(replay_turn_delta_edit);
+    layout->addWidget(replay_turn_delta_button);
     layout->addWidget(replay_play_pause);
     layout->addWidget(replay_step_backward_button);
     layout->addWidget(replay_step_forward_button);
@@ -197,6 +205,12 @@ void fc_client::init()
   replay_speed_combo->addItem("4x", 3);
   replay_speed_combo->addItem("8x", 4);
   replay_timeline_slider->setMinimumWidth(320);
+  replay_jump_turn_edit->setPlaceholderText(_("Turn"));
+  replay_jump_turn_edit->setMaximumWidth(72);
+  replay_jump_turn_button->setText(_("Jump"));
+  replay_turn_delta_edit->setPlaceholderText(_("+/-Turns"));
+  replay_turn_delta_edit->setMaximumWidth(82);
+  replay_turn_delta_button->setText(_("Move"));
   replay_controls->setVisible(false);
   status_bar->addPermanentWidget(replay_controls);
   set_status_bar(_("Welcome to Freeciv"));
@@ -360,6 +374,34 @@ void fc_client::fc_main(QApplication *qapp)
     replay_slider_dragging = false;
     client_replay_seek_position(replay_timeline_slider->value());
     update_replay_controls();
+  });
+  connect(replay_jump_turn_button, &QToolButton::clicked, this, [this]() {
+    bool ok;
+    int turn = replay_jump_turn_edit->text().toInt(&ok);
+
+    if (!ok) {
+      return;
+    }
+
+    client_replay_seek_turn(turn);
+    update_replay_controls();
+  });
+  connect(replay_jump_turn_edit, &QLineEdit::returnPressed, this, [this]() {
+    replay_jump_turn_button->click();
+  });
+  connect(replay_turn_delta_button, &QToolButton::clicked, this, [this]() {
+    bool ok;
+    int delta = replay_turn_delta_edit->text().toInt(&ok);
+
+    if (!ok) {
+      return;
+    }
+
+    client_replay_seek_turn(game.info.turn + delta);
+    update_replay_controls();
+  });
+  connect(replay_turn_delta_edit, &QLineEdit::returnPressed, this, [this]() {
+    replay_turn_delta_button->click();
   });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
   qapp->exec();
@@ -642,6 +684,10 @@ void fc_client::update_replay_controls()
   replay_play_pause->setText(client_replay_paused() ? _("Play") : _("Pause"));
   replay_step_backward_button->setEnabled(replay_running);
   replay_step_forward_button->setEnabled(replay_running);
+  replay_jump_turn_edit->setEnabled(replay_running);
+  replay_jump_turn_button->setEnabled(replay_running);
+  replay_turn_delta_edit->setEnabled(replay_running);
+  replay_turn_delta_button->setEnabled(replay_running);
 
   replay_speed_combo->blockSignals(true);
   replay_speed_combo->setCurrentIndex(client_replay_speed_level());
