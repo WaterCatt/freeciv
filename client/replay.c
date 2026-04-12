@@ -247,7 +247,7 @@ static bool replay_preview_inject_frame(struct connection *conn,
     packet_destroy(packet, type);
   }
 
-  return conn->used;
+  return TRUE;
 }
 
 static bool replay_build_preview_image(const struct replay_preview_state *state,
