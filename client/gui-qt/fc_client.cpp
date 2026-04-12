@@ -685,9 +685,10 @@ void fc_client::update_replay_controls()
                                  .arg(client_replay_position())
                                  .arg(client_replay_length()));
 
-  replay_status_label->setText(QString(_("Turn %1  Year %2"))
+  replay_status_label->setText(QString(_("Turn %1 / %2  Year %3"))
                                  .arg(game.info.turn)
-                                .arg(game.info.year));
+                                 .arg(client_replay_final_turn())
+                                 .arg(game.info.year));
 }
 
 /************************************************************************//**

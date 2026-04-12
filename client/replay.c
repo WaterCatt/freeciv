@@ -30,6 +30,10 @@
 
 #include "replay.h"
 
+#define CLIENT_REPLAY_INFO_OPTIONAL_SIZE \
+  (4 + 4 + CLIENT_REPLAY_PLAYERS_TEXT_LEN \
+   + CLIENT_REPLAY_INFO_TEXT_LEN + CLIENT_REPLAY_INFO_TEXT_LEN)
+
 struct client_replay {
   unsigned char *data;
   size_t data_len;
@@ -368,6 +372,27 @@ static bool replay_cursor_read_string(struct replay_data_cursor *cursor,
   return TRUE;
 }
 
+static bool replay_cursor_read_fixed_string(struct replay_data_cursor *cursor,
+                                            char *value, size_t size)
+{
+  char *buffer = fc_malloc(size);
+  size_t len = 0;
+
+  if (!replay_cursor_read_bytes(cursor, buffer, size)) {
+    FC_FREE(buffer);
+    return FALSE;
+  }
+
+  while (len < size && buffer[len] != '\0') {
+    len++;
+  }
+
+  memcpy(value, buffer, MIN(len, size - 1));
+  value[MIN(len, size - 1)] = '\0';
+  FC_FREE(buffer);
+  return TRUE;
+}
+
 static bool replay_load_plain_file_bytes(const char *path,
                                          unsigned char **data,
                                          size_t *data_len)
@@ -487,9 +512,12 @@ static bool replay_parse_info_data(const unsigned char *data, size_t data_len,
   uint16_t format_version;
   uint16_t flags;
   uint32_t chunk_size;
+  uint32_t final_turn;
+  uint32_t duration_seconds;
   uint32_t turn;
   uint32_t year;
   uint64_t timestamp;
+  size_t info_payload_start;
 
   memset(info, 0, sizeof(*info));
   sz_strlcpy(info->ruleset, "-");
@@ -516,6 +544,8 @@ static bool replay_parse_info_data(const unsigned char *data, size_t data_len,
     return FALSE;
   }
 
+  info_payload_start = cursor.data_pos;
+
   if (!replay_cursor_read_string(&cursor, &version)
       || !replay_cursor_read_string(&cursor, &capability)
       || !replay_cursor_read_string(&cursor, &ruleset)
@@ -535,6 +565,28 @@ static bool replay_parse_info_data(const unsigned char *data, size_t data_len,
   sz_strlcpy(info->scenario, scenario != NULL && scenario[0] != '\0' ? scenario : "-");
   info->start_turn = turn;
   info->start_year = year;
+  info->final_turn = turn;
+
+  {
+    size_t consumed = cursor.data_pos - info_payload_start;
+
+    if (chunk_size >= consumed + CLIENT_REPLAY_INFO_OPTIONAL_SIZE) {
+      if (!replay_cursor_read_u32(&cursor, &final_turn)
+          || !replay_cursor_read_u32(&cursor, &duration_seconds)
+          || !replay_cursor_read_fixed_string(&cursor, info->players, sizeof(info->players))
+          || !replay_cursor_read_fixed_string(&cursor, info->result, sizeof(info->result))
+          || !replay_cursor_read_fixed_string(&cursor, info->winner, sizeof(info->winner))) {
+        FC_FREE(version);
+        FC_FREE(capability);
+        FC_FREE(ruleset);
+        FC_FREE(scenario);
+        return FALSE;
+      }
+
+      info->final_turn = MAX(info->start_turn, (int) final_turn);
+      info->duration_seconds = duration_seconds;
+    }
+  }
 
   FC_FREE(version);
   FC_FREE(capability);
@@ -657,6 +709,26 @@ static bool replay_read_string(char **value)
   return TRUE;
 }
 
+static bool replay_read_fixed_string(char *value, size_t size)
+{
+  char *buffer = fc_malloc(size);
+  size_t len = 0;
+
+  if (!replay_read_bytes(buffer, size)) {
+    FC_FREE(buffer);
+    return FALSE;
+  }
+
+  while (len < size && buffer[len] != '\0') {
+    len++;
+  }
+
+  memcpy(value, buffer, MIN(len, size - 1));
+  value[MIN(len, size - 1)] = '\0';
+  FC_FREE(buffer);
+  return TRUE;
+}
+
 static bool replay_skip_bytes(uint32_t size)
 {
   if (replay.data_pos + size > replay.data_len) {
@@ -690,9 +762,13 @@ static bool replay_parse_info_chunk(void)
   char *version = NULL;
   char *ruleset = NULL;
   char *scenario = NULL;
+  uint32_t final_turn;
+  uint32_t duration_seconds;
   uint32_t turn;
   uint32_t year;
   uint64_t timestamp;
+  uint32_t remaining = replay.current_chunk_remaining;
+  size_t start_pos = replay.data_pos;
 
   if (!replay_read_string(&version)
       || !replay_read_string(&replay.capability)
@@ -713,6 +789,33 @@ static bool replay_parse_info_chunk(void)
 
   replay.initial_turn = turn;
   replay.final_turn = turn;
+
+  if (replay.data_pos - start_pos > remaining) {
+    return FALSE;
+  }
+
+  remaining -= replay.data_pos - start_pos;
+
+  if (remaining >= CLIENT_REPLAY_INFO_OPTIONAL_SIZE) {
+    char players[CLIENT_REPLAY_PLAYERS_TEXT_LEN];
+    char result[CLIENT_REPLAY_INFO_TEXT_LEN];
+    char winner[CLIENT_REPLAY_INFO_TEXT_LEN];
+
+    if (!replay_read_u32(&final_turn)
+        || !replay_read_u32(&duration_seconds)
+        || !replay_read_fixed_string(players, sizeof(players))
+        || !replay_read_fixed_string(result, sizeof(result))
+        || !replay_read_fixed_string(winner, sizeof(winner))) {
+      return FALSE;
+    }
+
+    replay.final_turn = MAX(replay.initial_turn, final_turn);
+    remaining -= CLIENT_REPLAY_INFO_OPTIONAL_SIZE;
+  }
+
+  if (remaining > 0 && !replay_skip_bytes(remaining)) {
+    return FALSE;
+  }
 
   replay.current_chunk_remaining = 0;
   return TRUE;
@@ -906,6 +1009,7 @@ static bool replay_scan_turn_limits(void)
   uint32_t turn;
   uint32_t year;
   uint64_t timestamp;
+  size_t info_payload_start;
   struct packet_ruleset_control saved_control = game.control;
   int latest_turn = replay.initial_turn;
   bool ok = FALSE;
@@ -918,8 +1022,13 @@ static bool replay_scan_turn_limits(void)
       || !replay_cursor_read_u16(&cursor, &flags)
       || format_version != 1
       || !replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)
-      || strcmp(chunk_type, "INFO") != 0
-      || !replay_cursor_read_string(&cursor, &version)
+      || strcmp(chunk_type, "INFO") != 0) {
+    goto cleanup;
+  }
+
+  info_payload_start = cursor.data_pos;
+
+  if (!replay_cursor_read_string(&cursor, &version)
       || !replay_cursor_read_string(&cursor, &capability)
       || !replay_cursor_read_string(&cursor, &ruleset)
       || !replay_cursor_read_string(&cursor, &scenario)
@@ -928,6 +1037,12 @@ static bool replay_scan_turn_limits(void)
       || !replay_cursor_read_u64(&cursor, &timestamp)) {
     goto cleanup;
   }
+
+  if (chunk_remaining < cursor.data_pos - info_payload_start) {
+    goto cleanup;
+  }
+
+  cursor.data_pos += chunk_remaining - (cursor.data_pos - info_payload_start);
 
   latest_turn = turn;
 
@@ -1335,6 +1450,7 @@ bool client_replay_read_preview(const char *filename,
   uint32_t turn;
   uint32_t year;
   uint64_t timestamp;
+  size_t info_payload_start;
   struct packet_ruleset_control saved_control = game.control;
   bool ok = FALSE;
 
@@ -1358,8 +1474,13 @@ bool client_replay_read_preview(const char *filename,
       || !replay_cursor_read_u16(&cursor, &flags)
       || format_version != 1
       || !replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)
-      || strcmp(chunk_type, "INFO") != 0
-      || !replay_cursor_read_string(&cursor, &version)
+      || strcmp(chunk_type, "INFO") != 0) {
+    goto cleanup;
+  }
+
+  info_payload_start = cursor.data_pos;
+
+  if (!replay_cursor_read_string(&cursor, &version)
       || !replay_cursor_read_string(&cursor, &capability)
       || !replay_cursor_read_string(&cursor, &ruleset)
       || !replay_cursor_read_string(&cursor, &scenario)
@@ -1368,6 +1489,12 @@ bool client_replay_read_preview(const char *filename,
       || !replay_cursor_read_u64(&cursor, &timestamp)) {
     goto cleanup;
   }
+
+  if (chunk_remaining < cursor.data_pos - info_payload_start) {
+    goto cleanup;
+  }
+
+  cursor.data_pos += chunk_remaining - (cursor.data_pos - info_payload_start);
 
   while (cursor.data_pos < cursor.data_len) {
     if (!replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)) {

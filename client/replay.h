@@ -8,6 +8,7 @@ extern "C" {
 #include "support.h"
 
 #define CLIENT_REPLAY_INFO_TEXT_LEN 128
+#define CLIENT_REPLAY_PLAYERS_TEXT_LEN 512
 
 struct client_replay_info {
   bool valid;
@@ -15,6 +16,11 @@ struct client_replay_info {
   char scenario[CLIENT_REPLAY_INFO_TEXT_LEN];
   int start_turn;
   int start_year;
+  int final_turn;
+  int duration_seconds;
+  char players[CLIENT_REPLAY_PLAYERS_TEXT_LEN];
+  char result[CLIENT_REPLAY_INFO_TEXT_LEN];
+  char winner[CLIENT_REPLAY_INFO_TEXT_LEN];
 };
 
 struct client_replay_preview {

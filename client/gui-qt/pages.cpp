@@ -274,9 +274,9 @@ void replay_browser_dialog::refresh()
       if (client_replay_read_info(qUtf8Printable(absolute), &info) && info.valid) {
         ruleset = QString::fromUtf8(info.ruleset);
         scenario = QString::fromUtf8(info.scenario);
-        start_text = QString(_("Turn %1 / Year %2"))
+        start_text = QString(_("Turn %1 / %2"))
                      .arg(info.start_turn)
-                     .arg(info.start_year);
+                     .arg(info.final_turn);
       } else {
         ruleset = _("Invalid replay");
       }
@@ -348,7 +348,12 @@ void replay_browser_dialog::update_preview()
                                        "<b>Size:</b> %3 bytes<br>"
                                        "<b>Ruleset:</b> %4<br>"
                                        "<b>Scenario:</b> %5<br>"
-                                       "<b>Start:</b> Turn %6 / Year %7"
+                                       "<b>Turns:</b> %6 to %7<br>"
+                                       "<b>Start Year:</b> %8<br>"
+                                       "<b>Players:</b> %9<br>"
+                                       "<b>Result:</b> %10<br>"
+                                       "<b>Winner:</b> %11<br>"
+                                       "<b>Duration:</b> %12 s"
                                        ))
                             .arg(file_info.fileName().toHtmlEscaped())
                             .arg(QLocale::system().toString(file_info.lastModified(),
@@ -357,7 +362,12 @@ void replay_browser_dialog::update_preview()
                             .arg(QString::fromUtf8(info.ruleset).toHtmlEscaped())
                             .arg(QString::fromUtf8(info.scenario).toHtmlEscaped())
                             .arg(info.start_turn)
-                            .arg(info.start_year));
+                            .arg(info.final_turn)
+                            .arg(info.start_year)
+                            .arg((info.players[0] != '\0' ? QString::fromUtf8(info.players) : QString("-")).toHtmlEscaped())
+                            .arg((info.result[0] != '\0' ? QString::fromUtf8(info.result) : QString("-")).toHtmlEscaped())
+                            .arg((info.winner[0] != '\0' ? QString::fromUtf8(info.winner) : QString("-")).toHtmlEscaped())
+                            .arg(info.duration_seconds));
   } else {
     preview_pixmap->setPixmap(make_preview_placeholder(_("Invalid Replay"),
                                                        _("The selected file could not be parsed.")));

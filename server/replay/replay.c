@@ -22,6 +22,7 @@
 #endif
 
 /* utility */
+#include "astring.h"
 #include "log.h"
 #include "mem.h"
 #include "netintf.h"
@@ -32,6 +33,7 @@
 #include "dataio.h"
 #include "game.h"
 #include "packets.h"
+#include "player.h"
 #include "version.h"
 
 /* common/networking */
@@ -49,6 +51,9 @@ enum replay_chunk_phase {
  * full transport frame, including compressed and jumbo-compressed frames. */
 #define REPLAY_JUMBO_SIZE 0xffff
 #define REPLAY_COMPRESSION_BORDER (16 * 1024 + 1)
+#define REPLAY_INFO_PLAYERS_TEXT_LEN 512
+#define REPLAY_INFO_RESULT_TEXT_LEN 128
+#define REPLAY_INFO_WINNER_TEXT_LEN 128
 
 struct replay_recorder_state {
   bool active;
@@ -62,6 +67,12 @@ struct replay_recorder_state {
   unsigned char *pending;
   size_t pending_len;
   size_t pending_cap;
+  time_t started_at;
+  long info_final_turn_offset;
+  long info_duration_offset;
+  long info_players_offset;
+  long info_result_offset;
+  long info_winner_offset;
 };
 
 static struct replay_recorder_state replay_state = {
@@ -70,6 +81,111 @@ static struct replay_recorder_state replay_state = {
 
 static void replay_recorder_flush_peer(void);
 static bool replay_compress_file(void);
+static bool replay_write_bytes(const void *data, size_t size);
+static bool replay_write_u32(uint32_t value);
+
+static bool replay_write_fixed_string(const char *value, size_t size)
+{
+  char *buffer = fc_calloc(size, sizeof(*buffer));
+  bool ok;
+
+  if (value != NULL) {
+    fc_strlcpy(buffer, value, size);
+  }
+
+  ok = replay_write_bytes(buffer, size);
+  FC_FREE(buffer);
+  return ok;
+}
+
+static bool replay_patch_u32(long offset, uint32_t value)
+{
+  long saved_pos;
+  bool ok;
+
+  if (offset <= 0) {
+    return FALSE;
+  }
+
+  saved_pos = ftell(replay_state.file);
+  if (saved_pos < 0 || fseek(replay_state.file, offset, SEEK_SET) != 0) {
+    return FALSE;
+  }
+
+  ok = replay_write_u32(value);
+  fseek(replay_state.file, saved_pos, SEEK_SET);
+  return ok;
+}
+
+static bool replay_patch_fixed_string(long offset, size_t size, const char *value)
+{
+  long saved_pos;
+  bool ok;
+
+  if (offset <= 0) {
+    return FALSE;
+  }
+
+  saved_pos = ftell(replay_state.file);
+  if (saved_pos < 0 || fseek(replay_state.file, offset, SEEK_SET) != 0) {
+    return FALSE;
+  }
+
+  ok = replay_write_fixed_string(value, size);
+  fseek(replay_state.file, saved_pos, SEEK_SET);
+  return ok;
+}
+
+static void replay_build_player_list(char *buffer, size_t buffer_size)
+{
+  bool first = TRUE;
+
+  if (buffer_size == 0) {
+    return;
+  }
+
+  buffer[0] = '\0';
+  players_iterate(pplayer) {
+    if (!first) {
+      fc_strlcat(buffer, ", ", buffer_size);
+    }
+    fc_strlcat(buffer, player_name(pplayer), buffer_size);
+    first = FALSE;
+  } players_iterate_end;
+}
+
+static void replay_build_winner_list(char *buffer, size_t buffer_size)
+{
+  bool first = TRUE;
+
+  if (buffer_size == 0) {
+    return;
+  }
+
+  buffer[0] = '\0';
+  players_iterate(pplayer) {
+    if (!pplayer->is_winner) {
+      continue;
+    }
+
+    if (!first) {
+      fc_strlcat(buffer, ", ", buffer_size);
+    }
+    fc_strlcat(buffer, player_name(pplayer), buffer_size);
+    first = FALSE;
+  } players_iterate_end;
+}
+
+static const char *replay_result_text(void)
+{
+  players_iterate(pplayer) {
+    if (pplayer->is_winner) {
+      return "Victory";
+    }
+  } players_iterate_end;
+
+  return "";
+}
 
 static void replay_notify_writable(struct connection *pc,
                                    bool data_available_and_socket_full)
@@ -446,6 +562,7 @@ bool replay_recorder_start(void)
 
   replay_state.active = TRUE;
   replay_state.phase = REPLAY_PHASE_NONE;
+  replay_state.started_at = now;
 
   if (!replay_write_bytes("FCREPLAY", 8)
       || !replay_write_u16(1)
@@ -459,6 +576,42 @@ bool replay_recorder_start(void)
       || !replay_write_u32(game.info.year)
       || !replay_write_u64((uint64_t) now)) {
     log_error("Replay recorder failed writing metadata.");
+    replay_recorder_stop();
+    return FALSE;
+  }
+
+  replay_state.info_final_turn_offset = ftell(replay_state.file);
+  if (!replay_write_u32(game.info.turn)) {
+    log_error("Replay recorder failed writing final turn metadata.");
+    replay_recorder_stop();
+    return FALSE;
+  }
+
+  replay_state.info_duration_offset = ftell(replay_state.file);
+  if (!replay_write_u32(0)) {
+    log_error("Replay recorder failed writing duration metadata.");
+    replay_recorder_stop();
+    return FALSE;
+  }
+
+  replay_state.info_players_offset = ftell(replay_state.file);
+  {
+    char players[REPLAY_INFO_PLAYERS_TEXT_LEN];
+
+    replay_build_player_list(players, sizeof(players));
+    if (!replay_write_fixed_string(players, sizeof(players))) {
+      log_error("Replay recorder failed writing player list metadata.");
+      replay_recorder_stop();
+      return FALSE;
+    }
+  }
+
+  replay_state.info_result_offset = ftell(replay_state.file);
+  replay_state.info_winner_offset = replay_state.info_result_offset
+                                   + REPLAY_INFO_RESULT_TEXT_LEN;
+  if (!replay_write_fixed_string("", REPLAY_INFO_RESULT_TEXT_LEN)
+      || !replay_write_fixed_string("", REPLAY_INFO_WINNER_TEXT_LEN)) {
+    log_error("Replay recorder failed writing result metadata.");
     replay_recorder_stop();
     return FALSE;
   }
@@ -514,6 +667,21 @@ void replay_recorder_stop(void)
     }
 
     if (replay_state.active) {
+      char winners[REPLAY_INFO_WINNER_TEXT_LEN];
+
+      replay_build_winner_list(winners, sizeof(winners));
+      if (!replay_patch_u32(replay_state.info_final_turn_offset, game.info.turn)
+          || !replay_patch_u32(replay_state.info_duration_offset,
+                               (uint32_t) MAX(0, time(nullptr) - replay_state.started_at))
+          || !replay_patch_fixed_string(replay_state.info_result_offset,
+                                        REPLAY_INFO_RESULT_TEXT_LEN,
+                                        replay_result_text())
+          || !replay_patch_fixed_string(replay_state.info_winner_offset,
+                                        REPLAY_INFO_WINNER_TEXT_LEN,
+                                        winners)) {
+        log_error("Replay recorder failed patching final metadata.");
+      }
+
       replay_write_bytes("DONE", 4);
       replay_write_u32(0);
     }
@@ -535,6 +703,12 @@ void replay_recorder_stop(void)
   replay_state.pending_cap = 0;
   replay_state.phase = REPLAY_PHASE_NONE;
   replay_state.active = FALSE;
+  replay_state.started_at = 0;
+  replay_state.info_final_turn_offset = 0;
+  replay_state.info_duration_offset = 0;
+  replay_state.info_players_offset = 0;
+  replay_state.info_result_offset = 0;
+  replay_state.info_winner_offset = 0;
   FC_FREE(replay_state.path);
   FC_FREE(replay_state.tmp_path);
 }
