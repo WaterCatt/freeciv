@@ -1483,6 +1483,38 @@ static bool replay_restart_at_turn(int target_turn)
   return TRUE;
 }
 
+static bool replay_restart_at_position(int target_position)
+{
+  int speed = replay.speed;
+  bool start_paused = replay.start_paused;
+
+  replay.active = FALSE;
+  replay_close();
+
+  if (client_state() != C_S_DISCONNECTED) {
+    set_client_state(C_S_DISCONNECTED);
+  }
+
+  replay.speed = speed;
+  replay.start_paused = TRUE;
+  if (!replay_load_from_path()) {
+    replay.start_paused = start_paused;
+    return FALSE;
+  }
+
+  replay.speed = speed;
+  replay.start_paused = start_paused;
+  replay.paused = TRUE;
+
+  while (replay.active && replay.event_frames < target_position) {
+    if (!replay_advance_frame()) {
+      return FALSE;
+    }
+  }
+
+  return TRUE;
+}
+
 void client_replay_set_file(char *filename)
 {
   FC_FREE(replay.path);
@@ -1678,6 +1710,32 @@ bool client_replay_step(void)
   }
 
   return replay_advance_frame();
+}
+
+void client_replay_seek_position(int position)
+{
+  bool paused_before;
+  int target_position;
+
+  if (!replay.active) {
+    return;
+  }
+
+  paused_before = replay.paused;
+  target_position = CLIP(0, position, replay.total_event_frames);
+
+  if (target_position == replay.event_frames) {
+    return;
+  }
+
+  if (!replay_restart_at_position(target_position)) {
+    return;
+  }
+
+  replay.paused = paused_before;
+  log_normal("Replay jumped to frame %d/%d at turn %d, year %d.",
+             replay.event_frames, replay.total_event_frames,
+             game.info.turn, game.info.year);
 }
 
 void client_replay_seek_turn(int turn)

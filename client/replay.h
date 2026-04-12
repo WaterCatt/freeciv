@@ -44,6 +44,7 @@ void client_replay_stop_mode(void);
 bool client_replay_active(void);
 bool client_replay_paused(void);
 bool client_replay_step(void);
+void client_replay_seek_position(int position);
 void client_replay_seek_turn(int turn);
 int client_replay_timer_interval_ms(void);
 int client_replay_speed_level(void);

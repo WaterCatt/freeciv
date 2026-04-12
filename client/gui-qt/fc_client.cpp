@@ -180,13 +180,13 @@ void fc_client::init()
     QHBoxLayout *layout = new QHBoxLayout(replay_controls);
 
     layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(replay_timeline_slider, 1);
+    layout->addWidget(replay_progress_label);
+    layout->addWidget(replay_status_label);
     layout->addWidget(replay_play_pause);
     layout->addWidget(replay_step_backward_button);
     layout->addWidget(replay_step_forward_button);
     layout->addWidget(replay_speed_combo);
-    layout->addWidget(replay_timeline_slider);
-    layout->addWidget(replay_progress_label);
-    layout->addWidget(replay_status_label);
   }
   replay_play_pause->setText(_("Pause"));
   replay_step_backward_button->setText(_("Step -"));
@@ -196,7 +196,7 @@ void fc_client::init()
   replay_speed_combo->addItem("2x", 2);
   replay_speed_combo->addItem("4x", 3);
   replay_speed_combo->addItem("8x", 4);
-  replay_timeline_slider->setMinimumWidth(220);
+  replay_timeline_slider->setMinimumWidth(320);
   replay_controls->setVisible(false);
   status_bar->addPermanentWidget(replay_controls);
   set_status_bar(_("Welcome to Freeciv"));
@@ -358,7 +358,7 @@ void fc_client::fc_main(QApplication *qapp)
   });
   connect(replay_timeline_slider, &QSlider::sliderReleased, this, [this]() {
     replay_slider_dragging = false;
-    client_replay_seek_turn(replay_timeline_slider->value());
+    client_replay_seek_position(replay_timeline_slider->value());
     update_replay_controls();
   });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
@@ -649,15 +649,13 @@ void fc_client::update_replay_controls()
   replay_speed_combo->setEnabled(replay_running);
 
   replay_timeline_slider->setEnabled(replay_running);
-  replay_timeline_slider->setRange(client_replay_initial_turn(),
-                                   MAX(client_replay_initial_turn(),
-                                       client_replay_final_turn()));
+  replay_timeline_slider->setRange(0, MAX(0, client_replay_length()));
   if (!replay_slider_dragging) {
-    replay_timeline_slider->setValue(game.info.turn);
+    replay_timeline_slider->setValue(client_replay_position());
   }
-  replay_progress_label->setText(QString(_("Turn %1 / %2"))
-                                 .arg(game.info.turn)
-                                 .arg(client_replay_final_turn()));
+  replay_progress_label->setText(QString(_("%1 / %2 frames"))
+                                 .arg(client_replay_position())
+                                 .arg(client_replay_length()));
 
   replay_status_label->setText(QString(_("Turn %1  Year %2"))
                                  .arg(game.info.turn)
