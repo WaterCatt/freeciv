@@ -25,6 +25,7 @@
 #include <QPainter>
 #include <QProgressBar>
 #include <QResizeEvent>
+#include <QSlider>
 #include <QScrollBar>
 #include <QSettings>
 #include <QShortcut>
@@ -172,8 +173,9 @@ void fc_client::init()
   replay_step_backward_button = new QToolButton(replay_controls);
   replay_step_forward_button = new QToolButton(replay_controls);
   replay_speed_combo = new QComboBox(replay_controls);
-  replay_progress_bar = new QProgressBar(replay_controls);
+  replay_timeline_slider = new QSlider(Qt::Horizontal, replay_controls);
   replay_progress_label = new QLabel(replay_controls);
+  replay_slider_dragging = false;
   {
     QHBoxLayout *layout = new QHBoxLayout(replay_controls);
 
@@ -182,18 +184,19 @@ void fc_client::init()
     layout->addWidget(replay_step_backward_button);
     layout->addWidget(replay_step_forward_button);
     layout->addWidget(replay_speed_combo);
-    layout->addWidget(replay_progress_bar);
+    layout->addWidget(replay_timeline_slider);
     layout->addWidget(replay_progress_label);
     layout->addWidget(replay_status_label);
   }
   replay_play_pause->setText(_("Pause"));
   replay_step_backward_button->setText(_("Step -"));
   replay_step_forward_button->setText(_("Step +"));
-  replay_speed_combo->addItem(_("Slow"), 0);
-  replay_speed_combo->addItem(_("Normal"), 1);
-  replay_speed_combo->addItem(_("Fast"), 2);
-  replay_progress_bar->setMinimumWidth(180);
-  replay_progress_bar->setTextVisible(false);
+  replay_speed_combo->addItem("0.5x", 0);
+  replay_speed_combo->addItem("1x", 1);
+  replay_speed_combo->addItem("2x", 2);
+  replay_speed_combo->addItem("4x", 3);
+  replay_speed_combo->addItem("8x", 4);
+  replay_timeline_slider->setMinimumWidth(220);
   replay_controls->setVisible(false);
   status_bar->addPermanentWidget(replay_controls);
   set_status_bar(_("Welcome to Freeciv"));
@@ -289,9 +292,11 @@ void fc_client::fc_main(QApplication *qapp)
   QShortcut *replay_pause_shortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
   QShortcut *replay_step_backward_shortcut = new QShortcut(QKeySequence(Qt::Key_Comma), this);
   QShortcut *replay_step_shortcut = new QShortcut(QKeySequence(Qt::Key_Period), this);
-  QShortcut *replay_slow_shortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
-  QShortcut *replay_normal_shortcut = new QShortcut(QKeySequence(Qt::Key_2), this);
-  QShortcut *replay_fast_shortcut = new QShortcut(QKeySequence(Qt::Key_3), this);
+  QShortcut *replay_speed_half_shortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
+  QShortcut *replay_speed_one_shortcut = new QShortcut(QKeySequence(Qt::Key_2), this);
+  QShortcut *replay_speed_two_shortcut = new QShortcut(QKeySequence(Qt::Key_3), this);
+  QShortcut *replay_speed_four_shortcut = new QShortcut(QKeySequence(Qt::Key_4), this);
+  QShortcut *replay_speed_eight_shortcut = new QShortcut(QKeySequence(Qt::Key_5), this);
 
   qRegisterMetaType<QTextCursor>("QTextCursor");
   qRegisterMetaType<QTextBlock>("QTextBlock");
@@ -319,14 +324,20 @@ void fc_client::fc_main(QApplication *qapp)
   connect(replay_step_shortcut, &QShortcut::activated, this, []() {
     client_replay_step_forward();
   });
-  connect(replay_slow_shortcut, &QShortcut::activated, this, []() {
+  connect(replay_speed_half_shortcut, &QShortcut::activated, this, []() {
     client_replay_set_speed_level(0);
   });
-  connect(replay_normal_shortcut, &QShortcut::activated, this, []() {
+  connect(replay_speed_one_shortcut, &QShortcut::activated, this, []() {
     client_replay_set_speed_level(1);
   });
-  connect(replay_fast_shortcut, &QShortcut::activated, this, []() {
+  connect(replay_speed_two_shortcut, &QShortcut::activated, this, []() {
     client_replay_set_speed_level(2);
+  });
+  connect(replay_speed_four_shortcut, &QShortcut::activated, this, []() {
+    client_replay_set_speed_level(3);
+  });
+  connect(replay_speed_eight_shortcut, &QShortcut::activated, this, []() {
+    client_replay_set_speed_level(4);
   });
   connect(replay_play_pause, &QToolButton::clicked, this, []() {
     client_replay_toggle_pause();
@@ -342,6 +353,14 @@ void fc_client::fc_main(QApplication *qapp)
           [](int index) {
             client_replay_set_speed_level(index);
           });
+  connect(replay_timeline_slider, &QSlider::sliderPressed, this, [this]() {
+    replay_slider_dragging = true;
+  });
+  connect(replay_timeline_slider, &QSlider::sliderReleased, this, [this]() {
+    replay_slider_dragging = false;
+    client_replay_seek_turn(replay_timeline_slider->value());
+    update_replay_controls();
+  });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
   qapp->exec();
 
@@ -629,15 +648,19 @@ void fc_client::update_replay_controls()
   replay_speed_combo->blockSignals(false);
   replay_speed_combo->setEnabled(replay_running);
 
-  replay_progress_bar->setRange(0, MAX(1, client_replay_length()));
-  replay_progress_bar->setValue(MIN(client_replay_position(),
-                                    replay_progress_bar->maximum()));
-  replay_progress_label->setText(QString(_("%1 / %2 frames"))
-                                 .arg(client_replay_position())
-                                 .arg(client_replay_length()));
+  replay_timeline_slider->setEnabled(replay_running);
+  replay_timeline_slider->setRange(client_replay_initial_turn(),
+                                   MAX(client_replay_initial_turn(),
+                                       client_replay_final_turn()));
+  if (!replay_slider_dragging) {
+    replay_timeline_slider->setValue(game.info.turn);
+  }
+  replay_progress_label->setText(QString(_("Turn %1 / %2"))
+                                 .arg(game.info.turn)
+                                 .arg(client_replay_final_turn()));
 
   replay_status_label->setText(QString(_("Turn %1  Year %2"))
-                                .arg(game.info.turn)
+                                 .arg(game.info.turn)
                                 .arg(game.info.year));
 }
 

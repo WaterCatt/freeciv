@@ -46,6 +46,7 @@ struct client_replay {
   int speed;
   int startup_steps;
   int initial_turn;
+  int final_turn;
   int snapshot_frames;
   int event_frames;
   int total_event_frames;
@@ -78,6 +79,7 @@ static bool replay_buffer_append(struct connection *pconn,
 static bool replay_scan_totals(void);
 static bool replay_step_frame(void);
 static bool replay_step_turn_forward_internal(void);
+static bool replay_scan_turn_limits(void);
 static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
                                      void *dst, size_t size);
 static bool replay_cursor_read_u32(struct replay_data_cursor *cursor,
@@ -170,6 +172,9 @@ static bool replay_preview_handle_packet(enum packet_type type, void *packet,
                                          struct replay_preview_state *state)
 {
   switch (type) {
+  case PACKET_RULESET_CONTROL:
+    game.control = *((const struct packet_ruleset_control *) packet);
+    break;
   case PACKET_RULESET_TERRAIN:
     {
       const struct packet_ruleset_terrain *terrain = packet;
@@ -271,6 +276,20 @@ static bool replay_build_preview_image(const struct replay_preview_state *state,
   preview->width = state->width;
   preview->height = state->height;
   return TRUE;
+}
+
+static int replay_speed_numerator(int speed)
+{
+  static const int numerators[] = { 1, 1, 2, 4, 8 };
+
+  return numerators[speed];
+}
+
+static int replay_speed_denominator(int speed)
+{
+  static const int denominators[] = { 2, 1, 1, 1, 1 };
+
+  return denominators[speed];
 }
 
 static bool replay_cursor_read_bytes(struct replay_data_cursor *cursor,
@@ -528,11 +547,17 @@ static const char *replay_speed_name(int speed)
 {
   switch (speed) {
   case 0:
-    return "slow";
+    return "0.5x";
+  case 1:
+    return "1x";
   case 2:
-    return "fast";
+    return "2x";
+  case 3:
+    return "4x";
+  case 4:
+    return "8x";
   default:
-    return "normal";
+    return "1x";
   }
 }
 
@@ -685,6 +710,9 @@ static bool replay_parse_info_chunk(void)
   FC_FREE(version);
   FC_FREE(ruleset);
   FC_FREE(scenario);
+
+  replay.initial_turn = turn;
+  replay.final_turn = turn;
 
   replay.current_chunk_remaining = 0;
   return TRUE;
@@ -854,6 +882,137 @@ fail:
   return FALSE;
 }
 
+static bool replay_scan_turn_limits(void)
+{
+  struct replay_data_cursor cursor = {
+    .data = replay.data,
+    .data_len = replay.data_len,
+    .data_pos = 0
+  };
+  struct connection conn;
+  struct packet_server_join_reply join_reply = {
+    .you_can_join = TRUE
+  };
+  char magic[8];
+  char chunk_type[5];
+  char *version = NULL;
+  char *capability = NULL;
+  char *ruleset = NULL;
+  char *scenario = NULL;
+  uint16_t format_version;
+  uint16_t flags;
+  uint32_t chunk_remaining;
+  uint32_t frame_len;
+  uint32_t turn;
+  uint32_t year;
+  uint64_t timestamp;
+  struct packet_ruleset_control saved_control = game.control;
+  int latest_turn = replay.initial_turn;
+  bool ok = FALSE;
+
+  memset(&conn, 0, sizeof(conn));
+
+  if (!replay_cursor_read_bytes(&cursor, magic, sizeof(magic))
+      || memcmp(magic, "FCREPLAY", sizeof(magic)) != 0
+      || !replay_cursor_read_u16(&cursor, &format_version)
+      || !replay_cursor_read_u16(&cursor, &flags)
+      || format_version != 1
+      || !replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)
+      || strcmp(chunk_type, "INFO") != 0
+      || !replay_cursor_read_string(&cursor, &version)
+      || !replay_cursor_read_string(&cursor, &capability)
+      || !replay_cursor_read_string(&cursor, &ruleset)
+      || !replay_cursor_read_string(&cursor, &scenario)
+      || !replay_cursor_read_u32(&cursor, &turn)
+      || !replay_cursor_read_u32(&cursor, &year)
+      || !replay_cursor_read_u64(&cursor, &timestamp)) {
+    goto cleanup;
+  }
+
+  latest_turn = turn;
+
+  connection_common_init(&conn);
+  conn.self = conn_list_new();
+  conn_list_append(conn.self, &conn);
+  conn.used = TRUE;
+  conn.established = TRUE;
+  conn.observer = TRUE;
+  conn.access_level = ALLOW_INFO;
+  conn_set_capability(&conn, capability);
+  post_receive_packet_server_join_reply(&conn, &join_reply);
+
+  while (cursor.data_pos < cursor.data_len) {
+    if (!replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)) {
+      goto cleanup;
+    }
+
+    if (strcmp(chunk_type, "DONE") == 0) {
+      ok = TRUE;
+      break;
+    }
+
+    while (chunk_remaining > 0) {
+      unsigned char *frame;
+
+      if (chunk_remaining < 4 || !replay_cursor_read_u32(&cursor, &frame_len)) {
+        goto cleanup;
+      }
+      chunk_remaining -= 4;
+
+      if (frame_len > chunk_remaining || cursor.data_pos + frame_len > cursor.data_len) {
+        goto cleanup;
+      }
+
+      frame = fc_malloc(frame_len);
+      if (!replay_cursor_read_bytes(&cursor, frame, frame_len)) {
+        FC_FREE(frame);
+        goto cleanup;
+      }
+
+      if (!replay_buffer_append(&conn, frame, frame_len)) {
+        FC_FREE(frame);
+        goto cleanup;
+      }
+      FC_FREE(frame);
+
+      while (conn.used) {
+        enum packet_type type;
+        void *packet = get_packet_from_connection(&conn, &type, FALSE);
+
+        if (packet == NULL) {
+          break;
+        }
+
+        if (type == PACKET_RULESET_CONTROL) {
+          game.control = *((const struct packet_ruleset_control *) packet);
+        } else if (type == PACKET_GAME_INFO) {
+          latest_turn = ((const struct packet_game_info *) packet)->turn;
+        }
+
+        packet_destroy(packet, type);
+      }
+
+      chunk_remaining -= frame_len;
+    }
+  }
+
+cleanup:
+  FC_FREE(version);
+  FC_FREE(capability);
+  FC_FREE(ruleset);
+  FC_FREE(scenario);
+  if (conn.self != NULL) {
+    connection_common_close(&conn);
+    conn_list_destroy(conn.self);
+  }
+  if (ok) {
+    replay.final_turn = MAX(replay.initial_turn, latest_turn);
+  }
+  game.control = saved_control;
+
+  return ok;
+}
+
 static bool replay_append_loaded_bytes(unsigned char **buffer, size_t *used,
                                        size_t *capacity,
                                        const unsigned char *src, size_t len)
@@ -1001,6 +1160,7 @@ static void replay_close(void)
   replay.speed = 1;
   replay.startup_steps = 0;
   replay.initial_turn = 0;
+  replay.final_turn = 0;
   replay.total_event_frames = 0;
 }
 
@@ -1014,6 +1174,7 @@ static bool replay_open_and_parse(void)
   };
 
   replay.initial_turn = 0;
+  replay.final_turn = 0;
   replay.snapshot_frames = 0;
   replay.event_frames = 0;
   replay.total_event_frames = 0;
@@ -1053,6 +1214,12 @@ static bool replay_open_and_parse(void)
 
   if (!replay_scan_totals()) {
     log_error("Replay '%s' totals scan failed.", replay.path);
+    replay_close();
+    return FALSE;
+  }
+
+  if (!replay_scan_turn_limits()) {
+    log_error("Replay '%s' turn scan failed.", replay.path);
     replay_close();
     return FALSE;
   }
@@ -1168,6 +1335,7 @@ bool client_replay_read_preview(const char *filename,
   uint32_t turn;
   uint32_t year;
   uint64_t timestamp;
+  struct packet_ruleset_control saved_control = game.control;
   bool ok = FALSE;
 
   fc_assert_ret_val(filename != NULL, FALSE);
@@ -1273,6 +1441,7 @@ cleanup:
   if (!ok) {
     client_replay_preview_reset(preview);
   }
+  game.control = saved_control;
 
   return ok;
 }
@@ -1340,12 +1509,16 @@ void client_replay_set_startup_steps(int steps)
 
 bool client_replay_set_speed_name(const char *name)
 {
-  if (!fc_strcasecmp(name, "slow")) {
+  if (!fc_strcasecmp(name, "0.5x") || !fc_strcasecmp(name, "slow")) {
     replay.speed = 0;
-  } else if (!fc_strcasecmp(name, "normal")) {
+  } else if (!fc_strcasecmp(name, "1x") || !fc_strcasecmp(name, "normal")) {
     replay.speed = 1;
-  } else if (!fc_strcasecmp(name, "fast")) {
+  } else if (!fc_strcasecmp(name, "2x")) {
     replay.speed = 2;
+  } else if (!fc_strcasecmp(name, "4x") || !fc_strcasecmp(name, "fast")) {
+    replay.speed = 3;
+  } else if (!fc_strcasecmp(name, "8x")) {
+    replay.speed = 4;
   } else {
     return FALSE;
   }
@@ -1355,7 +1528,7 @@ bool client_replay_set_speed_name(const char *name)
 
 void client_replay_set_speed_level(int level)
 {
-  if (level < 0 || level > 2) {
+  if (level < 0 || level > 4) {
     return;
   }
 
@@ -1459,18 +1632,29 @@ bool client_replay_paused(void)
 
 int client_replay_timer_interval_ms(void)
 {
-  static const int intervals[] = { 250, 50, 5 };
+  static const int base_interval = 200;
 
   if (replay.paused) {
     return 50;
   }
 
-  return intervals[replay.speed];
+  return MAX(1, base_interval * replay_speed_denominator(replay.speed)
+                / replay_speed_numerator(replay.speed));
 }
 
 int client_replay_speed_level(void)
 {
   return replay.speed;
+}
+
+int client_replay_initial_turn(void)
+{
+  return replay.initial_turn;
+}
+
+int client_replay_final_turn(void)
+{
+  return replay.final_turn;
 }
 
 int client_replay_position(void)
@@ -1494,6 +1678,31 @@ bool client_replay_step(void)
   }
 
   return replay_advance_frame();
+}
+
+void client_replay_seek_turn(int turn)
+{
+  bool paused_before;
+  int target_turn;
+
+  if (!replay.active) {
+    return;
+  }
+
+  paused_before = replay.paused;
+  target_turn = CLIP(replay.initial_turn, turn, replay.final_turn);
+
+  if (target_turn == game.info.turn) {
+    return;
+  }
+
+  if (!replay_restart_at_turn(target_turn)) {
+    return;
+  }
+
+  replay.paused = paused_before;
+  log_normal("Replay jumped to turn %d, year %d.",
+             game.info.turn, game.info.year);
 }
 
 bool client_replay_start_requested(void)

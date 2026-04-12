@@ -469,7 +469,7 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
       cmdhelp_add(help, "", "replay-step COUNT",
                   _("Apply COUNT replay event frames after loading snapshot"));
       cmdhelp_add(help, "", "replay-speed LEVEL",
-                  _("Set replay speed LEVEL (slow/normal/fast)"));
+                  _("Set replay speed LEVEL (0.5x/1x/2x/4x/8x)"));
       cmdhelp_add(help, "s",
                   /* TRANS: "server" is exactly what user must type, do not translate. */
                   _("server HOST"),
@@ -539,7 +539,7 @@ int client_main(int argc, char *argv[], bool postpone_tileset)
     } else if ((option = get_option_malloc("--replay-speed", argv, &i, argc, TRUE))) {
       if (!client_replay_set_speed_name(option)) {
         fc_fprintf(stderr,
-                   _("Invalid replay speed \"%s\". Use slow, normal, or fast.\n"),
+                   _("Invalid replay speed \"%s\". Use 0.5x, 1x, 2x, 4x, or 8x.\n"),
                    option);
         exit(EXIT_FAILURE);
       }
