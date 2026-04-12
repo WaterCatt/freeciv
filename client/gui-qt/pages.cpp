@@ -229,14 +229,14 @@ QStringList replay_browser_dialog::replay_directories() const
   QStringList dirs;
   char *storage_dir = freeciv_storage_dir();
 
-  dirs << QDir::currentPath();
   if (storage_dir != nullptr && storage_dir[0] != '\0') {
-    QString storage = QString::fromUtf8(storage_dir);
+    QString storage = QString::fromUtf8(storage_dir) + DIR_SEPARATOR + "replays";
 
     if (!dirs.contains(storage)) {
       dirs << storage;
     }
   }
+  dirs << QDir::currentPath();
   free_freeciv_storage_dir();
 
   return dirs;

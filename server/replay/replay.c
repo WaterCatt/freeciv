@@ -25,6 +25,7 @@
 #include "astring.h"
 #include "log.h"
 #include "mem.h"
+#include "shared.h"
 #include "netintf.h"
 #include "support.h"
 
@@ -83,6 +84,40 @@ static void replay_recorder_flush_peer(void);
 static bool replay_compress_file(void);
 static bool replay_write_bytes(const void *data, size_t size);
 static bool replay_write_u32(uint32_t value);
+
+static bool replay_build_storage_paths(const char *filename,
+                                       char **path, char **tmp_path)
+{
+  char *storage_dir = freeciv_storage_dir();
+  char *replay_dir;
+  size_t dir_len;
+  bool ok = FALSE;
+
+  *path = NULL;
+  *tmp_path = NULL;
+
+  if (storage_dir == NULL || storage_dir[0] == '\0') {
+    return FALSE;
+  }
+
+  dir_len = strlen(storage_dir) + strlen(DIR_SEPARATOR "replays") + 1;
+  replay_dir = fc_malloc(dir_len);
+  fc_snprintf(replay_dir, dir_len, "%s" DIR_SEPARATOR "replays", storage_dir);
+
+  if (make_dir(storage_dir, DIRMODE_DEFAULT) && make_dir(replay_dir, DIRMODE_DEFAULT)) {
+    size_t path_len = strlen(replay_dir) + strlen(DIR_SEPARATOR) + strlen(filename) + 1;
+    size_t tmp_len = path_len + strlen(".tmp");
+
+    *path = fc_malloc(path_len);
+    *tmp_path = fc_malloc(tmp_len);
+    fc_snprintf(*path, path_len, "%s" DIR_SEPARATOR "%s", replay_dir, filename);
+    fc_snprintf(*tmp_path, tmp_len, "%s.tmp", *path);
+    ok = TRUE;
+  }
+
+  FC_FREE(replay_dir);
+  return ok;
+}
 
 static bool replay_write_fixed_string(const char *value, size_t size)
 {
@@ -513,12 +548,15 @@ bool replay_recorder_start(void)
   }
 
   strftime(filename, sizeof(filename), "replay-%Y%m%d-%H%M%S.fcreplay", tm_now);
-  fc_snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);
 
   FC_FREE(replay_state.path);
   FC_FREE(replay_state.tmp_path);
-  replay_state.path = fc_strdup(filename);
-  replay_state.tmp_path = fc_strdup(tmp_filename);
+
+  if (!replay_build_storage_paths(filename, &replay_state.path, &replay_state.tmp_path)) {
+    fc_snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);
+    replay_state.path = fc_strdup(filename);
+    replay_state.tmp_path = fc_strdup(tmp_filename);
+  }
 
   replay_state.file = fc_fopen(replay_state.tmp_path, "wb+");
   if (replay_state.file == nullptr) {
