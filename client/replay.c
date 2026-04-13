@@ -1691,6 +1691,13 @@ void client_replay_stop_mode(void)
   FC_FREE(replay.path);
   replay.path = NULL;
   replay.pov_player_number = -1;
+
+  client.conn.established = FALSE;
+  client.conn.observer = FALSE;
+  client.conn.playing = NULL;
+  client.conn.id = -1;
+  client.conn.access_level = ALLOW_NONE;
+  client.conn.capability[0] = '\0';
 }
 
 void client_replay_set_start_paused(bool paused)
