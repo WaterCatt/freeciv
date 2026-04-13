@@ -287,19 +287,7 @@ static bool replay_build_preview_image(const struct replay_preview_state *state,
 
 static void replay_apply_pov(void)
 {
-  if (replay.pov_player_number < 0) {
-    client.conn.playing = NULL;
-    client.conn.observer = TRUE;
-    return;
-  }
-
-  client.conn.playing = player_by_number(replay.pov_player_number);
-  if (client.conn.playing == NULL) {
-    replay.pov_player_number = -1;
-    client.conn.observer = TRUE;
-    return;
-  }
-
+  client.conn.playing = NULL;
   client.conn.observer = TRUE;
 }
 
@@ -1867,13 +1855,11 @@ int client_replay_final_turn(void)
 
 void client_replay_set_pov_player(int player_number)
 {
-  if (player_number >= 0) {
-    log_normal("Replay player POV switching is currently unavailable; using Full Observer mode.");
-    replay.pov_player_number = -1;
-  } else {
-    replay.pov_player_number = -1;
+  if (player_number >= 0 && player_by_number(player_number) == NULL) {
+    player_number = -1;
   }
 
+  replay.pov_player_number = player_number;
   replay_apply_pov();
 }
 

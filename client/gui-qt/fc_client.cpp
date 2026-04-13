@@ -42,7 +42,10 @@
 #include <QToolButton>
 
 // common
+#include "city.h"
 #include "game.h"
+#include "player.h"
+#include "unit.h"
 
 // client
 #include "connectdlg_common.h"
@@ -210,7 +213,7 @@ void fc_client::init()
   replay_speed_combo->addItem("8x", 4);
   replay_pov_combo->setMinimumWidth(150);
   replay_pov_combo->addItem(_("Full Observer"), -1);
-  replay_pov_combo->setToolTip(_("Replay player point-of-view switching is currently disabled; Full Observer mode remains available."));
+  replay_pov_combo->setToolTip(_("Replay focus keeps the full observer map visible while centering on the selected player's current assets."));
   replay_timeline_slider->setMinimumWidth(320);
   replay_jump_turn_spin->setMinimumWidth(72);
   replay_jump_turn_button->setText(_("Jump"));
@@ -307,6 +310,7 @@ void fc_client::set_replay_seek_ui_locked(bool locked)
   replay_play_pause->setEnabled(!locked && client_replay_active());
   replay_step_backward_button->setEnabled(!locked && client_replay_active());
   replay_step_forward_button->setEnabled(!locked && client_replay_active());
+  replay_pov_combo->setEnabled(!locked && client_replay_active());
   replay_speed_combo->setEnabled(!locked && client_replay_active());
   replay_timeline_slider->setEnabled(!locked && client_replay_active());
   replay_jump_turn_spin->setEnabled(!locked && client_replay_active());
@@ -348,6 +352,82 @@ void fc_client::finalize_replay_page_layout()
   update_map_canvas_visible();
   mapview_wdg->update();
   minimapview_wdg->update();
+}
+
+/************************************************************************//**
+  Populate the replay focus selector with available players.
+****************************************************************************/
+void fc_client::populate_replay_pov_combo()
+{
+  replay_pov_combo->blockSignals(true);
+  replay_pov_combo->clear();
+  replay_pov_combo->addItem(_("Full Observer"), -1);
+
+  players_iterate(pplayer) {
+    replay_pov_combo->addItem(QString::fromUtf8(player_name(pplayer)),
+                              player_number(pplayer));
+  } players_iterate_end;
+
+  {
+    int idx = replay_pov_combo->findData(client_replay_pov_player_number());
+
+    replay_pov_combo->setCurrentIndex(idx >= 0 ? idx : 0);
+  }
+  replay_pov_combo->blockSignals(false);
+}
+
+/************************************************************************//**
+  Center replay view on a selected player's current city, capital, or unit
+  without changing observer/full-map visibility state.
+****************************************************************************/
+void fc_client::focus_replay_player(int player_number)
+{
+  struct player *pplayer;
+  struct city *pcity;
+  struct tile *ptile = nullptr;
+
+  if (!client_replay_active()) {
+    return;
+  }
+
+  if (player_number < 0) {
+    ptile = map_pos_to_tile(&(wld.map), wld.map.xsize / 2, wld.map.ysize / 2);
+    if (ptile != nullptr) {
+      center_tile_mapcanvas(ptile);
+      update_map_canvas_visible();
+      minimapview_wdg->update();
+      mapview_wdg->update();
+    }
+    return;
+  }
+
+  pplayer = player_by_number(player_number);
+  if (pplayer == nullptr) {
+    return;
+  }
+
+  pcity = player_primary_capital(pplayer);
+  if (pcity != nullptr && pcity->tile != nullptr) {
+    ptile = pcity->tile;
+  } else {
+    city_list_iterate(pplayer->cities, pcity_iter) {
+      ptile = pcity_iter->tile;
+      break;
+    } city_list_iterate_end;
+  }
+
+  if (ptile == nullptr) {
+    unit_list_iterate(pplayer->units, punit) {
+      ptile = unit_tile(punit);
+      break;
+    } unit_list_iterate_end;
+  }
+
+  if (ptile != nullptr) {
+    center_tile_mapcanvas(ptile);
+    update_map_canvas_visible();
+    mapview_wdg->update();
+  }
 }
 
 /************************************************************************//**
@@ -430,6 +510,7 @@ void fc_client::fc_main(QApplication *qapp)
     QApplication::processEvents();
     client_replay_step_backward();
     gui()->set_replay_seek_ui_locked(false);
+    gui()->focus_replay_player(client_replay_pov_player_number());
     gui()->update_replay_controls();
   });
   connect(replay_step_forward_button, &QToolButton::clicked, this, []() {
@@ -450,11 +531,8 @@ void fc_client::fc_main(QApplication *qapp)
             }
 
             client_replay_set_pov_player(pov.toInt());
-            update_map_canvas_visible();
-            refresh_overview_canvas();
-            update_info_label();
-            update_sidebar_tooltips();
-            menu_bar->menus_sensitive();
+            focus_replay_player(pov.toInt());
+            update_replay_controls();
           });
   connect(replay_timeline_slider, &QSlider::sliderPressed, this, [this]() {
     replay_slider_dragging = true;
@@ -465,6 +543,7 @@ void fc_client::fc_main(QApplication *qapp)
     QApplication::processEvents();
     client_replay_seek_position(replay_timeline_slider->value());
     set_replay_seek_ui_locked(false);
+    focus_replay_player(client_replay_pov_player_number());
     update_replay_controls();
   });
   connect(replay_jump_turn_button, &QToolButton::clicked, this, [this]() {
@@ -472,6 +551,7 @@ void fc_client::fc_main(QApplication *qapp)
     QApplication::processEvents();
     client_replay_seek_turn(replay_jump_turn_spin->value());
     set_replay_seek_ui_locked(false);
+    focus_replay_player(client_replay_pov_player_number());
     update_replay_controls();
   });
   connect(replay_turn_delta_button, &QToolButton::clicked, this, [this]() {
@@ -479,6 +559,7 @@ void fc_client::fc_main(QApplication *qapp)
     QApplication::processEvents();
     client_replay_seek_turn(game.info.turn + replay_turn_delta_spin->value());
     set_replay_seek_ui_locked(false);
+    focus_replay_player(client_replay_pov_player_number());
     update_replay_controls();
   });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
@@ -787,10 +868,25 @@ void fc_client::update_replay_controls()
   replay_speed_combo->blockSignals(false);
   replay_speed_combo->setEnabled(replay_running && !replay_seeking);
 
-  replay_pov_combo->blockSignals(true);
-  replay_pov_combo->setCurrentIndex(0);
-  replay_pov_combo->blockSignals(false);
-  replay_pov_combo->setEnabled(false);
+  if (replay_running) {
+    int desired_index;
+
+    if (replay_pov_combo->count() <= 1) {
+      populate_replay_pov_combo();
+    }
+
+    desired_index = replay_pov_combo->findData(client_replay_pov_player_number());
+    replay_pov_combo->blockSignals(true);
+    replay_pov_combo->setCurrentIndex(desired_index >= 0 ? desired_index : 0);
+    replay_pov_combo->blockSignals(false);
+    replay_pov_combo->setEnabled(!replay_seeking);
+  } else {
+    replay_pov_combo->blockSignals(true);
+    replay_pov_combo->clear();
+    replay_pov_combo->addItem(_("Full Observer"), -1);
+    replay_pov_combo->blockSignals(false);
+    replay_pov_combo->setEnabled(false);
+  }
 
   replay_timeline_slider->setEnabled(replay_running && !replay_seeking);
   replay_timeline_slider->setRange(0, MAX(0, client_replay_length()));
@@ -802,10 +898,22 @@ void fc_client::update_replay_controls()
                                  .arg(client_replay_length()));
 
   if (!replay_seeking) {
-    replay_status_label->setText(QString(_("Turn %1 / %2  Year %3"))
-                                   .arg(game.info.turn)
-                                   .arg(client_replay_final_turn())
-                                   .arg(game.info.year));
+    QString status = QString(_("Turn %1 / %2  Year %3"))
+                       .arg(game.info.turn)
+                       .arg(client_replay_final_turn())
+                       .arg(game.info.year);
+    int focused = client_replay_pov_player_number();
+
+    if (focused >= 0) {
+      struct player *pplayer = player_by_number(focused);
+
+      if (pplayer != nullptr) {
+        status += QString(_("  Focus: %1"))
+                  .arg(QString::fromUtf8(player_name(pplayer)));
+      }
+    }
+
+    replay_status_label->setText(status);
   }
 }
 

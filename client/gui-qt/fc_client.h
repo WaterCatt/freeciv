@@ -309,6 +309,8 @@ public:
   void update_fonts();
   void set_replay_seek_ui_locked(bool locked);
   void finalize_replay_page_layout();
+  void populate_replay_pov_combo();
+  void focus_replay_player(int player_number);
 
 private slots:
   void send_fake_chat_message(const QString &message);
