@@ -5,6 +5,7 @@
 #include "fc_prehdrs.h"
 
 #include <errno.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #ifdef FREECIV_HAVE_LIBZ
@@ -70,6 +71,8 @@ struct replay_preview_state {
   int terrain_colors_count;
   unsigned char *terrain_colors;
   int *terrain_ids;
+  int terrain_ids_count;
+  int max_tile_index;
 };
 
 static struct client_replay replay;
@@ -141,20 +144,48 @@ static bool replay_preview_ensure_terrain_color(struct replay_preview_state *sta
   return TRUE;
 }
 
+static bool replay_preview_ensure_tile_capacity(struct replay_preview_state *state,
+                                                int tile_index)
+{
+  int new_count;
+  int *new_ids;
+  int i;
+
+  if (tile_index < 0) {
+    return FALSE;
+  }
+
+  if (tile_index < state->terrain_ids_count) {
+    return TRUE;
+  }
+
+  new_count = MAX(tile_index + 1, state->terrain_ids_count * 2 + 1024);
+  new_ids = fc_malloc(new_count * sizeof(*new_ids));
+
+  for (i = 0; i < new_count; i++) {
+    new_ids[i] = -1;
+  }
+
+  if (state->terrain_ids != NULL) {
+    memcpy(new_ids, state->terrain_ids,
+           state->terrain_ids_count * sizeof(*new_ids));
+    FC_FREE(state->terrain_ids);
+  }
+
+  state->terrain_ids = new_ids;
+  state->terrain_ids_count = new_count;
+  return TRUE;
+}
+
 static bool replay_preview_init_map(struct replay_preview_state *state,
                                     int width, int height)
 {
-  size_t count;
-
   if (width <= 0 || height <= 0) {
     return FALSE;
   }
 
-  count = (size_t) width * height;
-  FC_FREE(state->terrain_ids);
-  state->terrain_ids = fc_malloc(count * sizeof(*state->terrain_ids));
-  for (size_t i = 0; i < count; i++) {
-    state->terrain_ids[i] = -1;
+  if (!replay_preview_ensure_tile_capacity(state, width * height - 1)) {
+    return FALSE;
   }
 
   state->width = width;
@@ -209,10 +240,13 @@ static bool replay_preview_handle_packet(enum packet_type type, void *packet,
       const struct packet_tile_info *tile_info = packet;
       int tile_index = tile_info->tile;
 
-      if (state->terrain_ids != NULL
-          && tile_index >= 0
-          && tile_index < state->width * state->height) {
+      if (!replay_preview_ensure_tile_capacity(state, tile_index)) {
+        return FALSE;
+      }
+
+      if (tile_index >= 0 && tile_index < state->terrain_ids_count) {
         state->terrain_ids[tile_index] = tile_info->terrain;
+        state->max_tile_index = MAX(state->max_tile_index, tile_index);
       }
     }
     break;
@@ -256,17 +290,30 @@ static bool replay_build_preview_image(const struct replay_preview_state *state,
 {
   size_t pixel_count;
   size_t idx;
+  int width = state->width;
+  int height = state->height;
 
-  if (state->width <= 0 || state->height <= 0 || state->terrain_ids == NULL) {
+  if (state->terrain_ids == NULL || state->max_tile_index < 0) {
     return FALSE;
   }
 
-  pixel_count = (size_t) state->width * state->height;
+  if (width <= 0 || height <= 0) {
+    width = MAX(1, (int) ceil(sqrt((double) state->max_tile_index + 1.0)));
+    height = MAX(1, (state->max_tile_index + width) / width);
+  }
+
+  pixel_count = (size_t) width * height;
   preview->rgb = fc_malloc(pixel_count * 3 * sizeof(*preview->rgb));
 
   for (idx = 0; idx < pixel_count; idx++) {
     int terrain_id = state->terrain_ids[idx];
     unsigned char *pixel = preview->rgb + idx * 3;
+
+    if (idx < (size_t) state->terrain_ids_count) {
+      terrain_id = state->terrain_ids[idx];
+    } else {
+      terrain_id = -1;
+    }
 
     if (terrain_id >= 0 && terrain_id < state->terrain_colors_count) {
       pixel[0] = state->terrain_colors[terrain_id * 3 + 0];
@@ -280,9 +327,15 @@ static bool replay_build_preview_image(const struct replay_preview_state *state,
   }
 
   preview->valid = TRUE;
-  preview->width = state->width;
-  preview->height = state->height;
+  preview->width = width;
+  preview->height = height;
   return TRUE;
+}
+
+static bool replay_preview_complete(const struct replay_preview_state *state)
+{
+  return state->width > 0 && state->height > 0
+         && state->max_tile_index >= state->width * state->height - 1;
 }
 
 static void replay_apply_pov(void)
@@ -1536,32 +1589,46 @@ bool client_replay_read_preview(const char *filename,
   conn_set_capability(&conn, capability);
   post_receive_packet_server_join_reply(&conn, &join_reply);
 
-  while (chunk_remaining > 0) {
-    unsigned char *frame;
+  do {
+    while (chunk_remaining > 0) {
+      unsigned char *frame;
 
-    if (chunk_remaining < 4 || !replay_cursor_read_u32(&cursor, &frame_len)) {
-      goto cleanup;
-    }
-    chunk_remaining -= 4;
+      if (chunk_remaining < 4 || !replay_cursor_read_u32(&cursor, &frame_len)) {
+        goto cleanup;
+      }
+      chunk_remaining -= 4;
 
-    if (frame_len > chunk_remaining || cursor.data_pos + frame_len > cursor.data_len) {
-      goto cleanup;
-    }
+      if (frame_len > chunk_remaining || cursor.data_pos + frame_len > cursor.data_len) {
+        goto cleanup;
+      }
 
-    frame = fc_malloc(frame_len);
-    if (!replay_cursor_read_bytes(&cursor, frame, frame_len)) {
+      frame = fc_malloc(frame_len);
+      if (!replay_cursor_read_bytes(&cursor, frame, frame_len)) {
+        FC_FREE(frame);
+        goto cleanup;
+      }
+
+      if (!replay_preview_inject_frame(&conn, frame, frame_len, &state)) {
+        FC_FREE(frame);
+        goto cleanup;
+      }
+
       FC_FREE(frame);
-      goto cleanup;
+      chunk_remaining -= frame_len;
+
+      if (replay_preview_complete(&state)) {
+        break;
+      }
     }
 
-    if (!replay_preview_inject_frame(&conn, frame, frame_len, &state)) {
-      FC_FREE(frame);
-      goto cleanup;
+    if (replay_preview_complete(&state) || cursor.data_pos >= cursor.data_len) {
+      break;
     }
 
-    FC_FREE(frame);
-    chunk_remaining -= frame_len;
-  }
+    if (!replay_cursor_read_chunk_header(&cursor, chunk_type, &chunk_remaining)) {
+      goto cleanup;
+    }
+  } while (strcmp(chunk_type, "EVNT") == 0);
 
   ok = replay_build_preview_image(&state, preview);
 
