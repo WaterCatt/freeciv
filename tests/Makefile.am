@@ -15,6 +15,10 @@ EXTRA_DIST =	check_macros.sh			\
 		generate_rs_save.sh		\
 		generate_rs_upgrade.sh		\
 		header_guard.sh			\
+		replay-check.sh			\
+		replay_info_check.py		\
+		replay_loading_check.sh		\
+		replay_recording_toggle.sh	\
 		rs_test_res/ruleset_is.lua	\
 		rs_test_res/ruleset_list_dist.txt \
 		rs_test_res/ruleset_list_opt.txt \

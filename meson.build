@@ -4627,6 +4627,11 @@ executable('freeciv-manual',
 
 endif
 
+if server_type != 'disabled' and get_option('clients').contains('qt')
+  run_target('replay-check',
+             command: [sh_exe, files('tests/replay-check.sh'), s_root, b_root])
+endif
+
 install_data(
   'data/default/default.lua',
   'data/default/nationlist.ruleset',
