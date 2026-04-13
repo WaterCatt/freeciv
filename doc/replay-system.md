@@ -10,16 +10,23 @@ Current replay support includes:
 
 - server-side recording of a game into `.fcreplay`
 - runtime server setting to enable or disable recording
+- dedicated replay storage under the Freeciv user storage directory
+- gzip-compressed replay files
+- legacy plain replay compatibility
 - client-side replay playback in the Qt client
 - replay browser UI in the Qt client
 - replay metadata display and initial minimap preview in the browser
-- turn-based forward and backward stepping in replay mode
+- exact replay speed levels (`0.5x`, `1x`, `2x`, `4x`, `8x`)
+- frame-based replay timeline slider and seek
+- turn-based step forward and backward
+- jump-to-turn and signed move-by-turn navigation
+- safe replay player focus mode while preserving full observer/full-map replay
 
 Current replay support does not include:
 
-- arbitrary seek
 - checkpoints
-- rewind without restart
+- rewind without replay restart
+- true historical fog-of-war replay POV
 - replay database/library management
 - embedded replay playback inside the browser
 
@@ -40,13 +47,13 @@ Current replay support does not include:
 
 The replay system is packet-stream based.
 
-The server records the normal server-to-client bootstrap and game packets seen by a dedicated replay observer connection. The client later replays those same transport frames through the normal client packet decode path.
+The server records the normal server-to-client bootstrap and gameplay packets seen by a dedicated replay observer connection. The client later replays those same transport frames through the normal client packet decode path.
 
 In practice:
 
 - the server writes one replay file per recorded game
-- the file contains metadata, snapshot frames, and event frames
-- the client loads the snapshot first
+- the file contains metadata, snapshot/bootstrap frames, and later event frames
+- the client loads the snapshot/bootstrap first
 - the client then applies event frames in order
 
 This keeps replay behavior close to normal client packet handling and avoids a separate gameplay simulation path inside the replay client.
@@ -79,6 +86,20 @@ That connection:
 - feeds those packets into the replay recorder
 
 This means the replay recorder captures canonical server-generated client traffic rather than a separate custom event model.
+
+## Replay Storage Location
+
+New replay files are written to a dedicated replay directory under the Freeciv storage directory:
+
+- `freeciv_storage_dir()/replays`
+
+On a typical Linux setup this is:
+
+- `~/.freeciv/replays/`
+
+If dedicated replay path creation fails, the recorder falls back to the current working directory.
+
+The Qt Replay Browser scans the dedicated replay directory first and still scans the current working directory as a compatibility fallback for older replay files.
 
 ## Replay File Format
 
@@ -115,7 +136,9 @@ Current chunk ids are:
 
 ### `INFO`
 
-The `INFO` chunk stores replay metadata:
+The `INFO` chunk stores replay metadata.
+
+Base metadata:
 
 - Freeciv version string
 - capability string
@@ -125,23 +148,25 @@ The `INFO` chunk stores replay metadata:
 - starting year
 - timestamp
 
-This chunk is used by the Qt replay browser for metadata display.
+Extended metadata present in newer replay files:
+
+- final turn
+- duration in seconds
+- player list
+- result text, if available
+- winner text, if available
+
+The client parses the extended metadata tail when present and safely skips it for older replay files.
 
 ### `SNAP`
 
 The `SNAP` chunk stores the initial bootstrap transport frames.
 
-These are the packets needed to bring a client into the initial replay state. In current practice this includes the normal bootstrap packet stream needed for the initial map and ruleset state.
-
-The replay browser minimap preview also uses selected packets from `SNAP`, specifically enough to derive:
-
-- terrain colors from ruleset terrain packets
-- map dimensions from map info
-- initial terrain layout from tile info packets
+These are the packets needed to bring a client into the initial replay state. In current practice this includes the normal bootstrap packet stream needed for ruleset and map state.
 
 ### `EVNT`
 
-The `EVNT` chunk stores subsequent replay frames after the initial snapshot.
+The `EVNT` chunk stores subsequent replay frames after the initial snapshot/bootstrap.
 
 These are replayed sequentially during playback.
 
@@ -186,12 +211,28 @@ The client reuses the normal packet decode path rather than a separate replay pr
 The Qt replay UI currently provides:
 
 - play / pause
-- speed selection
-- turn/year display
-- frame progress display
-- progress bar
+- exact speed selection (`0.5x`, `1x`, `2x`, `4x`, `8x`)
+- turn/year/final-turn display
+- frame counter display
+- frame-based timeline slider
 - step backward by turn
 - step forward by turn
+- jump to turn
+- move by signed turn delta
+- replay focus selector with:
+  - `Full Observer`
+  - one entry per replay player
+
+### Navigation Semantics
+
+The timeline slider is frame-based.
+
+Current implementation seeks by:
+
+- reset replay to snapshot/bootstrap state
+- replay forward until the requested frame is reached
+
+Jump-to-turn and move-by-turn use the same restart-and-replay-forward strategy, but target turns instead of frame positions.
 
 ### Step Semantics
 
@@ -202,10 +243,26 @@ Current implementation advances replay frames until `game.info.turn` changes.
 Step backward is also turn-based, but it is implemented in a simple MVP way:
 
 - determine the previous target turn
-- reset replay to the snapshot
+- reset replay to the snapshot/bootstrap
 - replay forward again until the target turn is reached
 
 This is correct for current MVP needs, but it is not a checkpoint-based rewind system.
+
+### Player Focus Mode
+
+Replay currently supports a safe player focus mode, not true historical player POV.
+
+Current focus behavior:
+
+- `Full Observer` keeps full-map replay and recenters to the map center
+- selecting a replay player keeps full-map replay visible
+- the camera recenters to that player's current capital, city, or unit
+- focus selection persists across replay seek/jump/restart-based navigation
+
+Important limitation:
+
+- replay focus mode does **not** switch the client into that player's live fog-of-war visibility state
+- this is intentional, because direct reuse of live per-player visibility state in replay mode was found to be unsafe
 
 ## Replay Browser
 
@@ -215,8 +272,8 @@ Current browser behavior:
 
 - opened from the startup screen `Open Replay...` button
 - also reachable from the menu entry `Open Replay...`
-- lists `.fcreplay` files from the current working directory first
-- also checks the Freeciv storage directory if available
+- lists `.fcreplay` files from the dedicated replay storage directory first
+- also checks the current working directory for legacy replay files
 
 For each replay, the browser shows:
 
@@ -225,18 +282,26 @@ For each replay, the browser shows:
 - file size
 - ruleset
 - scenario
-- starting turn/year
+- turn range
+
+Selected replay details additionally show, when available:
+
+- players
+- result
+- winner
+- duration
 
 ### Browser Preview
 
 The browser preview is a static initial-state minimap preview.
 
-It is generated from selected `SNAP` packets only. It does not start a full replay session inside the browser.
+It is generated from replay bootstrap packets only. It does not start a full replay session inside the browser.
 
 Current preview generation uses:
 
 - replay `INFO` metadata
 - replay `SNAP` packet decoding for initial map preview data
+- early `EVNT` packet decoding when the ruleset produces an empty or incomplete `SNAP` chunk for preview purposes
 - ruleset terrain color packets
 - map info packet
 - tile info packets
@@ -252,12 +317,14 @@ Invalid or corrupt replay files are handled defensively:
 
 The following limitations are current and intentional:
 
-- arbitrary seek is not implemented
 - checkpoints are not implemented
 - backward stepping is implemented by replay restart plus replay-forward
+- frame and turn seek are implemented by replay restart plus replay-forward
 - the browser only previews the initial state, not later turns
 - the browser does not host an embedded replay player
 - there is no replay library database or metadata index
+- replay focus mode is full-map only and does not implement historical fog-of-war POV
+- unsafe direct player-visibility POV switching is intentionally disabled
 
 ## Validation Notes
 
@@ -271,7 +338,11 @@ Useful manual checks:
 4. Connect and play a short game
 5. Exit client normally
 6. Quit the server normally
-7. Confirm a new `replay-*.fcreplay` file exists
+7. Confirm a new replay exists in the dedicated replay directory:
+
+```bash
+ls -lh ~/.freeciv/replays/replay-*.fcreplay
+```
 
 ### Playback from CLI
 
@@ -287,6 +358,32 @@ Useful manual checks:
 4. Confirm browser metadata and minimap preview update
 5. Click `Open`
 
+## Acceptance Status
+
+The following replay acceptance checks have been completed successfully in this repository state:
+
+- replay recording and playback end-to-end
+- runtime enable/disable of replay recording
+- gzip-compressed replay files
+- legacy plain replay compatibility
+- dedicated replay storage directory
+- replay browser metadata and minimap preview
+- frame slider seek
+- jump-to-turn and move-by-turn navigation
+- exact replay speed levels
+- 100+ turn replay validation
+- record-and-load validation for standard rulesets:
+  - `classic`
+  - `civ1`
+  - `civ2`
+  - `civ2civ3`
+  - `alien`
+- small real multiplayer replay smoke validation
+
+Remaining notable limitation:
+
+- true historical player POV with fog-of-war reconstruction is not implemented
+
 ## Summary
 
 Current replay support is a practical packet-stream implementation built around:
@@ -294,5 +391,7 @@ Current replay support is a practical packet-stream implementation built around:
 - a dedicated server-side replay observer connection
 - `.fcreplay` chunked files with `INFO`, `SNAP`, and `EVNT`
 - gzip-compressed replay storage with legacy plain-file compatibility
+- dedicated replay storage under the Freeciv user data directory
 - client playback through the normal packet decode path
 - a Qt replay browser that can inspect metadata, show an initial minimap preview, and launch playback
+- replay navigation built around restart-and-replay-forward seek, rather than checkpoints
