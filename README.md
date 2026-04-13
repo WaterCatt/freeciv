@@ -150,14 +150,6 @@ Original Freeciv tests should continue to pass without replay regressions.
 
 Original Freeciv documentation remains available in the doc/ directory.
 
----
-
-## ⚠️ Current Limitations
-* No checkpoint-based rewind system
-* Seek uses restart + replay-forward strategy
-* Browser preview is initial-state only
-* No replay database/library management
-* No true historical fog-of-war player POV replay mode
 
 ---
 
