@@ -307,6 +307,8 @@ public:
   void update_sidebar_tooltips();
   void reload_sidebar_icons();
   void update_fonts();
+  void set_replay_seek_ui_locked(bool locked);
+  void finalize_replay_page_layout();
 
 private slots:
   void send_fake_chat_message(const QString &message);

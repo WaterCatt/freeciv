@@ -22,6 +22,7 @@
 
 // client
 #include "client_main.h"
+#include "replay.h"
 
 // gui-qt
 #include "cityrep.h"
@@ -1273,6 +1274,10 @@ void city_report_dialog_popup(bool raise)
   int i;
   city_report *cr;
   QWidget *w;
+
+  if (client_replay_seeking()) {
+    return;
+  }
 
   if (!gui()->is_repo_dlg_open("CTS")) {
     cr = new city_report;

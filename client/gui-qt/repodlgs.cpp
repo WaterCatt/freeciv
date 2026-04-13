@@ -41,6 +41,7 @@
 #include "gui_main.h"
 #include "helpdata.h"
 #include "options.h"
+#include "replay.h"
 #include "repodlgs_common.h"
 #include "reqtree.h"
 #include "sprite.h"
@@ -1659,6 +1660,10 @@ void qtg_science_report_dialog_popup(bool raise)
   int i;
   QWidget *w;
 
+  if (client_replay_seeking()) {
+    return;
+  }
+
   if (client_is_global_observer()) {
     return;
   }
@@ -1705,6 +1710,10 @@ void economy_report_dialog_popup(bool raise)
   int i;
   eco_report *eco_rep;
   QWidget *w;
+
+  if (client_replay_seeking()) {
+    return;
+  }
 
   if (!gui()->is_repo_dlg_open("ECO")) {
     eco_rep = new eco_report;

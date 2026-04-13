@@ -38,6 +38,7 @@
 #include <QTabBar>
 #include <QTextBlock>
 #include <QTextEdit>
+#include <QTimer>
 #include <QToolButton>
 
 // common
@@ -287,6 +288,69 @@ void fc_client::init()
 }
 
 /************************************************************************//**
+  Lock or unlock unsafe game-state UI during replay seek rebuilds.
+****************************************************************************/
+void fc_client::set_replay_seek_ui_locked(bool locked)
+{
+  interface_locked = locked;
+
+  if (sidebar_wdg != nullptr) {
+    sidebar_wdg->setEnabled(!locked);
+  }
+  if (game_tab_widget != nullptr) {
+    game_tab_widget->setEnabled(!locked);
+  }
+  if (menu_bar != nullptr) {
+    menu_bar->setEnabled(!locked);
+  }
+
+  replay_play_pause->setEnabled(!locked && client_replay_active());
+  replay_step_backward_button->setEnabled(!locked && client_replay_active());
+  replay_step_forward_button->setEnabled(!locked && client_replay_active());
+  replay_speed_combo->setEnabled(!locked && client_replay_active());
+  replay_timeline_slider->setEnabled(!locked && client_replay_active());
+  replay_jump_turn_spin->setEnabled(!locked && client_replay_active());
+  replay_jump_turn_button->setEnabled(!locked && client_replay_active());
+  replay_turn_delta_spin->setEnabled(!locked && client_replay_active());
+  replay_turn_delta_button->setEnabled(!locked && client_replay_active());
+
+  if (locked) {
+    replay_status_label->setText(_("Seeking replay..."));
+  }
+}
+
+/************************************************************************//**
+  Force a replay game-page relayout after loading finishes so resize or
+  fullscreen changes made during the loading page are reflected in the map.
+****************************************************************************/
+void fc_client::finalize_replay_page_layout()
+{
+  if (!client_replay_mode() || page != PAGE_GAME || game_tab_widget == nullptr) {
+    return;
+  }
+
+  if (central_wdg != nullptr && central_wdg->layout() != nullptr) {
+    central_wdg->layout()->activate();
+  }
+  if (pages[PAGE_GAME] != nullptr && pages[PAGE_GAME]->layout() != nullptr) {
+    pages[PAGE_GAME]->layout()->activate();
+  }
+  if (game_main_widget != nullptr && game_main_widget->layout() != nullptr) {
+    game_main_widget->layout()->activate();
+  }
+
+  game_tab_widget->updateGeometry();
+  game_tab_widget->resize(game_main_widget->size());
+  mapview_wdg->resize(game_tab_widget->size());
+  map_canvas_resized(game_tab_widget->width(), game_tab_widget->height());
+  minimapview_wdg->reset();
+  overview_size_changed();
+  update_map_canvas_visible();
+  mapview_wdg->update();
+  minimapview_wdg->update();
+}
+
+/************************************************************************//**
   Destructor
 ****************************************************************************/
 fc_client::~fc_client()
@@ -362,7 +426,11 @@ void fc_client::fc_main(QApplication *qapp)
     client_replay_toggle_pause();
   });
   connect(replay_step_backward_button, &QToolButton::clicked, this, []() {
+    gui()->set_replay_seek_ui_locked(true);
+    QApplication::processEvents();
     client_replay_step_backward();
+    gui()->set_replay_seek_ui_locked(false);
+    gui()->update_replay_controls();
   });
   connect(replay_step_forward_button, &QToolButton::clicked, this, []() {
     client_replay_step_forward();
@@ -393,15 +461,24 @@ void fc_client::fc_main(QApplication *qapp)
   });
   connect(replay_timeline_slider, &QSlider::sliderReleased, this, [this]() {
     replay_slider_dragging = false;
+    set_replay_seek_ui_locked(true);
+    QApplication::processEvents();
     client_replay_seek_position(replay_timeline_slider->value());
+    set_replay_seek_ui_locked(false);
     update_replay_controls();
   });
   connect(replay_jump_turn_button, &QToolButton::clicked, this, [this]() {
+    set_replay_seek_ui_locked(true);
+    QApplication::processEvents();
     client_replay_seek_turn(replay_jump_turn_spin->value());
+    set_replay_seek_ui_locked(false);
     update_replay_controls();
   });
   connect(replay_turn_delta_button, &QToolButton::clicked, this, [this]() {
+    set_replay_seek_ui_locked(true);
+    QApplication::processEvents();
     client_replay_seek_turn(game.info.turn + replay_turn_delta_spin->value());
+    set_replay_seek_ui_locked(false);
     update_replay_controls();
   });
   connect(qapp, &QCoreApplication::aboutToQuit, this, &fc_client::closing);
@@ -531,6 +608,15 @@ void fc_client::switch_page(int new_pg)
     update_sidebar_tooltips();
     qtg_real_science_report_dialog_update(nullptr);
     show_new_turn_info();
+    if (client_replay_mode()) {
+      finalize_replay_page_layout();
+      QTimer::singleShot(0, this, [this]() {
+        finalize_replay_page_layout();
+      });
+      QTimer::singleShot(50, this, [this]() {
+        finalize_replay_page_layout();
+      });
+    }
     break;
   case PAGE_SCENARIO:
     update_scenarios_page();
@@ -674,21 +760,24 @@ void fc_client::update_replay_controls()
 {
   bool replay_mode = client_replay_requested();
   bool replay_running = client_replay_active();
+  bool replay_seeking = client_replay_seeking();
 
   replay_controls->setVisible(replay_mode);
+
+  set_replay_seek_ui_locked(replay_mode && replay_seeking);
 
   if (!replay_mode) {
     return;
   }
 
-  replay_play_pause->setEnabled(replay_running);
+  replay_play_pause->setEnabled(replay_running && !replay_seeking);
   replay_play_pause->setText(client_replay_paused() ? _("Play") : _("Pause"));
-  replay_step_backward_button->setEnabled(replay_running);
-  replay_step_forward_button->setEnabled(replay_running);
-  replay_jump_turn_spin->setEnabled(replay_running);
-  replay_jump_turn_button->setEnabled(replay_running);
-  replay_turn_delta_spin->setEnabled(replay_running);
-  replay_turn_delta_button->setEnabled(replay_running);
+  replay_step_backward_button->setEnabled(replay_running && !replay_seeking);
+  replay_step_forward_button->setEnabled(replay_running && !replay_seeking);
+  replay_jump_turn_spin->setEnabled(replay_running && !replay_seeking);
+  replay_jump_turn_button->setEnabled(replay_running && !replay_seeking);
+  replay_turn_delta_spin->setEnabled(replay_running && !replay_seeking);
+  replay_turn_delta_button->setEnabled(replay_running && !replay_seeking);
   replay_jump_turn_spin->setRange(client_replay_initial_turn(),
                                   MAX(client_replay_initial_turn(),
                                       client_replay_final_turn()));
@@ -696,14 +785,14 @@ void fc_client::update_replay_controls()
   replay_speed_combo->blockSignals(true);
   replay_speed_combo->setCurrentIndex(client_replay_speed_level());
   replay_speed_combo->blockSignals(false);
-  replay_speed_combo->setEnabled(replay_running);
+  replay_speed_combo->setEnabled(replay_running && !replay_seeking);
 
   replay_pov_combo->blockSignals(true);
   replay_pov_combo->setCurrentIndex(0);
   replay_pov_combo->blockSignals(false);
   replay_pov_combo->setEnabled(false);
 
-  replay_timeline_slider->setEnabled(replay_running);
+  replay_timeline_slider->setEnabled(replay_running && !replay_seeking);
   replay_timeline_slider->setRange(0, MAX(0, client_replay_length()));
   if (!replay_slider_dragging) {
     replay_timeline_slider->setValue(client_replay_position());
@@ -712,10 +801,12 @@ void fc_client::update_replay_controls()
                                  .arg(client_replay_position())
                                  .arg(client_replay_length()));
 
-  replay_status_label->setText(QString(_("Turn %1 / %2  Year %3"))
-                                 .arg(game.info.turn)
-                                 .arg(client_replay_final_turn())
-                                 .arg(game.info.year));
+  if (!replay_seeking) {
+    replay_status_label->setText(QString(_("Turn %1 / %2  Year %3"))
+                                   .arg(game.info.turn)
+                                   .arg(client_replay_final_turn())
+                                   .arg(game.info.year));
+  }
 }
 
 /************************************************************************//**

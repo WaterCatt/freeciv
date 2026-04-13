@@ -52,6 +52,7 @@ struct client_replay {
   int initial_turn;
   int final_turn;
   int pov_player_number;
+  bool seeking;
   int snapshot_frames;
   int event_frames;
   int total_event_frames;
@@ -1296,6 +1297,7 @@ static void replay_close(void)
   replay.startup_steps = 0;
   replay.initial_turn = 0;
   replay.final_turn = 0;
+  replay.seeking = FALSE;
   replay.total_event_frames = 0;
 }
 
@@ -1604,6 +1606,8 @@ static bool replay_restart_at_turn(int target_turn)
   int speed = replay.speed;
   bool start_paused = replay.start_paused;
 
+  replay.seeking = TRUE;
+
   replay.active = FALSE;
   replay_close();
 
@@ -1615,6 +1619,7 @@ static bool replay_restart_at_turn(int target_turn)
   replay.start_paused = TRUE;
   if (!replay_load_from_path()) {
     replay.start_paused = start_paused;
+    replay.seeking = FALSE;
     return FALSE;
   }
 
@@ -1624,9 +1629,12 @@ static bool replay_restart_at_turn(int target_turn)
 
   while (replay.active && game.info.turn < target_turn) {
     if (!replay_step_turn_forward_internal()) {
+      replay.seeking = FALSE;
       return FALSE;
     }
   }
+
+  replay.seeking = FALSE;
 
   return TRUE;
 }
@@ -1635,6 +1643,8 @@ static bool replay_restart_at_position(int target_position)
 {
   int speed = replay.speed;
   bool start_paused = replay.start_paused;
+
+  replay.seeking = TRUE;
 
   replay.active = FALSE;
   replay_close();
@@ -1647,6 +1657,7 @@ static bool replay_restart_at_position(int target_position)
   replay.start_paused = TRUE;
   if (!replay_load_from_path()) {
     replay.start_paused = start_paused;
+    replay.seeking = FALSE;
     return FALSE;
   }
 
@@ -1656,9 +1667,12 @@ static bool replay_restart_at_position(int target_position)
 
   while (replay.active && replay.event_frames < target_position) {
     if (!replay_advance_frame()) {
+      replay.seeking = FALSE;
       return FALSE;
     }
   }
+
+  replay.seeking = FALSE;
 
   return TRUE;
 }
@@ -1805,6 +1819,11 @@ bool client_replay_mode(void)
 bool client_replay_active(void)
 {
   return replay.active;
+}
+
+bool client_replay_seeking(void)
+{
+  return replay.seeking;
 }
 
 bool client_replay_paused(void)

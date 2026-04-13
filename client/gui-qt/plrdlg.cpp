@@ -26,6 +26,7 @@
 #include <QVBoxLayout>
 
 // gui-qt
+#include "replay.h"
 #include "fc_client.h"
 #include "gui_main.h"
 #include "plrdlg.h"
@@ -1151,6 +1152,10 @@ void popup_players_dialog(bool raise)
 {
   int i;
   QWidget *w;
+
+  if (client_replay_seeking()) {
+    return;
+  }
 
   if (!gui()->is_repo_dlg_open("PLR")) {
     plr_report *pr = new plr_report;
